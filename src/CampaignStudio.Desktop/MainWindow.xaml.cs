@@ -17,6 +17,7 @@ public sealed partial class MainWindow : Window
     private string origin = "";
     private string key = "";
     private bool initialized;
+    private readonly bool smoke = Environment.GetCommandLineArgs().Contains("--smoke-test");
     public MainWindow()
     {
         InitializeComponent(); Title = "Campaign Studio — Preview 0.2";
@@ -30,6 +31,8 @@ public sealed partial class MainWindow : Window
         try
         {
             string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CampaignStudio");
+            string? dataOverride = Environment.GetEnvironmentVariable("CAMPAIGN_STUDIO_DATA_DIRECTORY");
+            if (!string.IsNullOrWhiteSpace(dataOverride) && Path.IsPathFullyQualified(dataOverride)) folder = dataOverride;
             Directory.CreateDirectory(folder);
             string? cloud = Environment.GetEnvironmentVariable("CAMPAIGN_STUDIO_CLOUD_URL");
             key = Environment.GetEnvironmentVariable("CAMPAIGN_STUDIO_CLOUD_KEY") ?? "";
@@ -53,11 +56,17 @@ public sealed partial class MainWindow : Window
                     await File.WriteAllBytesAsync(secretFile, ProtectedData.Protect(secret, null, DataProtectionScope.CurrentUser));
                 }
                 server = StudioHost.Build(["--urls", "http://127.0.0.1:0"], new StudioSettings
-                { ApiKey = key, TokenSecret = Encoding.UTF8.GetString(secret), DataDirectory = folder }, Path.Combine(AppContext.BaseDirectory, "wwwroot"));
+                { ApiKey = key, TokenSecret = Encoding.UTF8.GetString(secret), DataDirectory = folder,
+                    EnableLiveSending = string.Equals(Environment.GetEnvironmentVariable("Studio__EnableLiveSending"),"true",StringComparison.OrdinalIgnoreCase),
+                    EnableDirectSending = string.Equals(Environment.GetEnvironmentVariable("Studio__EnableDirectSending"),"true",StringComparison.OrdinalIgnoreCase),
+                    PublicBaseUrl = Environment.GetEnvironmentVariable("Studio__PublicBaseUrl") ?? "",
+                    ShortcutsJson = Environment.GetEnvironmentVariable("Studio__ShortcutsJson") ?? "{}",
+                    ExternalDesignerExecutable = Environment.GetEnvironmentVariable("Studio__ExternalDesignerExecutable") ?? "",
+                    ExternalDesignerOutput = Environment.GetEnvironmentVariable("Studio__ExternalDesignerOutput") ?? "" }, Path.Combine(AppContext.BaseDirectory, "wwwroot"));
                 await server.StartAsync();
                 origin = server.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single().TrimEnd('/');
             }
-            var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(folder, "WebView"));
+            var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(folder, "WebView"), null);
             await Workspace.EnsureCoreWebView2Async(environment);
             Workspace.CoreWebView2.Settings.AreDevToolsEnabled = false;
             Workspace.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -68,10 +77,20 @@ public sealed partial class MainWindow : Window
                 if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri) || uri.GetLeftPart(UriPartial.Authority) != origin) args.Cancel = true;
             };
             await Workspace.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("if(window.top===window && location.origin===" + JsonSerializer.Serialize(origin) + "){window.__studioDesktopKey=" + JsonSerializer.Serialize(key) + ";}");
-            Workspace.CoreWebView2.NavigationCompleted += (_, args) =>
+            Workspace.CoreWebView2.NavigationCompleted += async (_, args) =>
             {
-                if (!args.IsSuccess) { Status.Text = "Could not open the workspace. Check the cloud connection."; return; }
+                if (!args.IsSuccess) { Status.Text = "Could not open the workspace. Check the cloud connection."; if (smoke) Environment.Exit(1); return; }
                 Status.Visibility = Visibility.Collapsed;
+                if (smoke)
+                {
+                    for (int attempt=0;attempt<80;attempt++)
+                    {
+                        string ready=await Workspace.ExecuteScriptAsync("document.querySelectorAll('#nav [data-nav]').length >= 10 && !!document.querySelector('h1')");
+                        if(ready=="true"){Environment.Exit(0);return;}
+                        await Task.Delay(250);
+                    }
+                    Environment.Exit(2);
+                }
             };
             Workspace.CoreWebView2.DownloadStarting += (_, args) =>
             {
@@ -83,6 +102,6 @@ public sealed partial class MainWindow : Window
             };
             Workspace.Source = new Uri(origin);
         }
-        catch (Exception ex) { Status.Text = "Unable to open Campaign Studio: " + ex.Message; }
+        catch (Exception ex) { Status.Text = "Unable to open Campaign Studio: " + ex.Message; if (smoke) Environment.Exit(1); }
     }
 }
