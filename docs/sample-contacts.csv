@@ -1,0 +1,5 @@
+Email,First name,Last name,Company
+alex@example.com,Alex,Sample,Example Company
+sam@example.com,Sam,Sample,Example Company
+alex@example.com,Alex,Duplicate,Example Company
+invalid-address,Invalid,Sample,Example Company

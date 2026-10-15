@@ -1,0 +1,8 @@
+<Window x:Class="CampaignStudio.Desktop.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <Grid>
+   <WebView2 x:Name="Workspace" />
+   <TextBlock x:Name="Status" Text="Opening your workspace…" HorizontalAlignment="Center" VerticalAlignment="Center" />
+ </Grid>
+</Window>

@@ -1,0 +1,24 @@
+name: Build previews
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  functional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet run --project tests/CampaignStudio.Tests
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - shell: pwsh
+        run: ./scripts/Build-Windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CampaignStudio-native-windows-preview
+          path: artifacts/windows-native/

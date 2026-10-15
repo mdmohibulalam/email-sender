@@ -1,0 +1,30 @@
+services:
+  database:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: campaignstudio
+      POSTGRES_USER: campaignstudio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campaignstudio"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  studio:
+    build: .
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      Studio__ApiKey: ${STUDIO_API_KEY:?Set STUDIO_API_KEY in .env}
+      Studio__TokenSecret: ${STUDIO_TOKEN_SECRET:?Set STUDIO_TOKEN_SECRET in .env}
+      Studio__Postgres: Host=database;Database=campaignstudio;Username=campaignstudio;Password=${POSTGRES_PASSWORD}
+      Studio__PublicBaseUrl: ${STUDIO_PUBLIC_BASE_URL:-}
+      Studio__EnableLiveSending: "false"
+      Logging__LogLevel__Default: Warning
+    volumes: ["captures:/app/data"]
+volumes:
+  postgres:
+  captures:
