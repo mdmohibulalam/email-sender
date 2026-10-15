@@ -16,7 +16,7 @@ jobs:
           POSTGRES_DB: studio_tests
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready --health-interval 5s
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
           --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +56,8 @@ jobs:
           dotnet-version: 10.0.x
       - shell: pwsh
         run: ./scripts/Build-Windows.ps1
+      - name: Audit native dependencies
+        run: dotnet list src/CampaignStudio.Desktop package --vulnerable --include-transitive
       - name: Compile installer
         shell: pwsh
         run: |
@@ -63,6 +65,9 @@ jobs:
           if (-not (Test-Path $compiler)) { choco install innosetup --yes --no-progress }
           & $compiler installer/CampaignStudio.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
+      - name: Smoke test installer
+        shell: pwsh
+        run: ./scripts/Test-Windows-Installer.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: CampaignStudio-native-windows-preview

@@ -5,7 +5,7 @@ const routes = ['Overview','Audience','Campaigns','Templates','Connections','Lis
 const state = { key:sessionStorage.getItem('studio-key')||'', view:'overview', settings:null, page:1, sort:'email:asc', secondarySort:'', search:'', list:'', status:'', campaign:null, campaigns:[], previewTimer:null, refreshTimer:null };
 const e = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const badge = v => `<span class="badge ${['Completed','Captured','Subscribed','Accepted'].includes(v)?'good':['NeedsReview','Unknown','Suppressed','Paused'].includes(v)?'warn':''}">${e(v)}</span>`;
-const btn = (label,action,cls='') => `<button class="btn ${cls}" data-action="${action}">${label}</button>`;
+const btn = (label,action,cls='') => `<button type="button" class="btn ${cls}" data-action="${action}">${label}</button>`;
 const empty = (title,body,action='') => `<div class="empty"><div class="empty-mark">◇</div><h3>${e(title)}</h3><p>${e(body)}</p>${action}</div>`;
 const heading = (over,title,sub,actions='') => `<div class="page-head"><div><div class="eyebrow">${over}</div><h1>${title}</h1><p class="muted">${sub}</p></div><div class="actions">${actions}</div></div>`;
 function toast(text){const n=document.querySelector('#toast');n.textContent=text;n.style.display='block';clearTimeout(n.timer);n.timer=setTimeout(()=>n.style.display='none',4500);}
