@@ -168,11 +168,16 @@ namespace CampaignStudio.Api.Migrations.Postgres
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("TrackEngagement")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("UtmCampaign")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SenderId", "State");
 
                     b.HasIndex("State", "ScheduledAt");
 
@@ -254,6 +259,41 @@ namespace CampaignStudio.Api.Migrations.Postgres
                     b.HasIndex("ListName", "Suppressed");
 
                     b.ToTable("Contacts");
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.EngagementSignal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("At")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Bucket")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId", "Kind", "LinkKey", "Bucket")
+                        .IsUnique();
+
+                    b.ToTable("Engagement");
                 });
 
             modelBuilder.Entity("CampaignStudio.Core.Exclusion", b =>
@@ -440,6 +480,8 @@ namespace CampaignStudio.Api.Migrations.Postgres
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ContactId");
+
                     b.HasIndex("CampaignId", "ContactId")
                         .IsUnique();
 
@@ -516,6 +558,10 @@ namespace CampaignStudio.Api.Migrations.Postgres
                     b.Property<int>("DelayMilliseconds")
                         .HasColumnType("integer");
 
+                    b.Property<string>("DeliveryMode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("FromEmail")
                         .IsRequired()
                         .HasColumnType("text");
@@ -527,6 +573,9 @@ namespace CampaignStudio.Api.Migrations.Postgres
                     b.Property<string>("Host")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("MaxConnections")
+                        .HasColumnType("integer");
 
                     b.Property<int>("MaxRetries")
                         .HasColumnType("integer");
@@ -646,6 +695,39 @@ namespace CampaignStudio.Api.Migrations.Postgres
                     b.HasIndex("State", "NextAttemptAt");
 
                     b.ToTable("Signups");
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.EngagementSignal", b =>
+                {
+                    b.HasOne("CampaignStudio.Core.RecipientJob", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.RecipientJob", b =>
+                {
+                    b.HasOne("CampaignStudio.Core.Campaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CampaignStudio.Core.Contact", null)
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.SendAttempt", b =>
+                {
+                    b.HasOne("CampaignStudio.Core.RecipientJob", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }
