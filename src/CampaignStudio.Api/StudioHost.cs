@@ -8,7 +8,7 @@ namespace CampaignStudio.Api;
 
 public static class StudioHost
 {
-    public static WebApplication Build(string[] args, StudioSettings? supplied = null, string? webRoot = null)
+    public static WebApplication Build(string[] args, StudioSettings? supplied = null, string? webRoot = null, Action<IServiceCollection>? configure = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -22,11 +22,20 @@ public static class StudioHost
         builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 8 * 1024 * 1024);
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton<UnsubscribeTokens>();
-        builder.Services.AddDbContext<Store>(o =>
+        builder.Services.AddSingleton<CredentialVault>();
+        builder.Services.AddSingleton<ISmtpTransport, SmtpTransport>();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<WorkspaceLease>();
+        if (!string.IsNullOrWhiteSpace(settings.Postgres))
         {
-            if (!string.IsNullOrWhiteSpace(settings.Postgres)) o.UseNpgsql(settings.Postgres);
-            else o.UseSqlite($"Data Source={Path.Combine(settings.DataDirectory, "studio.db")}");
-        });
+            builder.Services.AddDbContext<PostgresStore>(o => o.UseNpgsql(settings.Postgres));
+            builder.Services.AddScoped<Store>(s => s.GetRequiredService<PostgresStore>());
+        }
+        else
+        {
+            builder.Services.AddDbContext<SqliteStore>(o => o.UseSqlite(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = Path.Combine(settings.DataDirectory, "studio.db"), ForeignKeys = true }.ToString()));
+            builder.Services.AddScoped<Store>(s => s.GetRequiredService<SqliteStore>());
+        }
         builder.Services.AddRateLimiter(o =>
         {
             o.RejectionStatusCode = 429;
@@ -35,13 +44,27 @@ public static class StudioHost
                 { PermitLimit = 240, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
         });
         if (settings.StartWorker) builder.Services.AddHostedService<DispatchWorker>();
+        configure?.Invoke(builder.Services);
         var app = builder.Build();
-        using (var scope = app.Services.CreateScope()) scope.ServiceProvider.GetRequiredService<Store>().Database.EnsureCreated();
+        try
+        {
+            app.Services.GetRequiredService<WorkspaceLease>();
+            using var scope = app.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Store>();
+            SchemaUpgrade.Apply(db, settings);
+            if (settings.LiveReady && !db.Senders.Any())
+            {
+                db.Senders.Add(new SenderProfile { Name = "Configured SMTP", Host = settings.SmtpHost, Port = settings.SmtpPort, Username = settings.SmtpUser,
+                    PasswordCipher = app.Services.GetRequiredService<CredentialVault>().Seal(settings.SmtpPassword), FromEmail = settings.FromEmail, FromName = settings.FromName }); db.SaveChanges();
+            }
+        }
+        catch { app.DisposeAsync().AsTask().GetAwaiter().GetResult(); throw; }
+        app.UseRateLimiter();
         app.Use(async (ctx, next) =>
         {
             ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
             ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
-            ctx.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'";
+            ctx.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'";
             if (ctx.Request.Path.StartsWithSegments("/api"))
             {
                 ctx.Response.Headers.CacheControl = "no-store";
@@ -52,15 +75,20 @@ public static class StudioHost
             }
             try { await next(); }
             catch (FormatException e) { ctx.Response.StatusCode = 400; await ctx.Response.WriteAsJsonAsync(new { error = e.Message }); }
+            catch (System.Text.Json.JsonException) { ctx.Response.StatusCode = 400; await ctx.Response.WriteAsJsonAsync(new { error = "Invalid JSON data." }); }
             catch (DbUpdateException) { ctx.Response.StatusCode = 409; await ctx.Response.WriteAsJsonAsync(new { error = "Data changed or this record already exists. Refresh and try again." }); }
+            catch (BadHttpRequestException ex) { ctx.Response.StatusCode = ex.StatusCode; await ctx.Response.WriteAsJsonAsync(new { error = "Request exceeds its limit or is invalid." }); }
+            catch (Exception) { ctx.Response.StatusCode = 500; await ctx.Response.WriteAsJsonAsync(new { error = "Operation failed. Review the workspace settings and try again.", requestId = ctx.TraceIdentifier }); }
         });
-        app.UseRateLimiter();
         app.UseDefaultFiles(); app.UseStaticFiles();
-        app.MapGet("/health", () => Results.Ok(new { status = "ok", version = "0.1.0" }));
+        app.MapGet("/health", () => Results.Ok(new { status = "ok", version = "0.2.0" }));
         var api = app.MapGroup("/api");
-        api.MapGet("/settings", () => new { version = "0.1.0", liveReady = settings.LiveReady,
+        api.MapGet("/settings", async (Store db) => new { version = "0.2.0", liveReady = settings.EnableLiveSending && settings.PublicLinksReady && await db.Senders.AnyAsync(x => x.VerifiedAt != null),
+            liveSendingEnabled = settings.EnableLiveSending, publicLinksReady = settings.PublicLinksReady,
             fromEmail = settings.FromEmail, fromName = settings.FromName, storage = settings.Postgres is null ? "Local SQLite" : "PostgreSQL",
             execution = "This server owns its campaign queue", sendingMode = "Capture emails until live SMTP is configured" });
+        Connections.Map(api);
+        MarketingEndpoints.Map(api);
         api.MapGet("/overview", async (Store db) => new
         {
             contacts = await db.Contacts.CountAsync(), eligible = await db.Contacts.CountAsync(x => !x.Suppressed),
@@ -69,6 +97,7 @@ public static class StudioHost
         });
         api.MapGet("/contacts", async (Store db, string? search, string? list, bool? suppressed, int? page) =>
         {
+            if (page is < 1 or > 1000000 || search?.Length > 250 || list?.Length > 250) return Error("Invalid page or filter length.");
             var q = db.Contacts.AsNoTracking().AsQueryable();
             if (!string.IsNullOrWhiteSpace(search)) q = q.Where(x => x.Email.Contains(search) || x.FirstName.Contains(search) || x.LastName.Contains(search));
             if (!string.IsNullOrWhiteSpace(list)) q = q.Where(x => x.ListName == list);
@@ -85,7 +114,7 @@ public static class StudioHost
             if (await db.Contacts.AnyAsync(x => x.Email == email)) return Results.Conflict(new { error = "This email is already in your audience." });
             var c = new Contact { Email = email, FirstName = input.FirstName.Trim(), LastName = input.LastName.Trim(), Company = input.Company.Trim(),
                 ListName = input.ListName.Trim(), ConsentSource = input.ConsentSource.Trim() };
-            db.Add(c); await db.SaveChangesAsync(); return Results.Ok(c);
+            db.Add(c); AudienceRules.Log(db, c.Id, "Subscribed", c.ConsentSource); await db.SaveChangesAsync(); return Results.Ok(c);
         });
         api.MapPost("/contacts/import", async (ImportInput input, Store db) =>
         {
@@ -94,7 +123,9 @@ public static class StudioHost
             if (!ValidContactText("", "", "", input.ListName, input.ConsentSource) || input.EmailColumn is < 0 or > 99
                 || input.FirstNameColumn is < -1 or > 99 || input.LastNameColumn is < -1 or > 99 || input.CompanyColumn is < -1 or > 99) return Error("Check your column mapping and list name.");
             var rows = Csv.Parse(input.Csv); if (rows.Count > 10001) return Error("Import at most 10,000 rows per batch in this pilot.");
-            var existing = (await db.Contacts.Select(x => x.Email).ToListAsync()).ToHashSet(StringComparer.Ordinal);
+            var candidates = rows.Skip(input.HasHeader ? 1 : 0).Select(r => input.EmailColumn < r.Length ? ContactRules.Normalize(r[input.EmailColumn]) : "").Distinct().ToArray();
+            var existing = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var batch in candidates.Chunk(256)) foreach (var email in await db.Contacts.Where(x => batch.Contains(x.Email)).Select(x => x.Email).ToListAsync()) existing.Add(email);
             var issues = new List<ImportIssue>(); int added = 0, duplicate = 0;
             for (int i = input.HasHeader ? 1 : 0; i < rows.Count; i++)
             {
@@ -104,8 +135,8 @@ public static class StudioHost
                 if (existing.Contains(email)) { duplicate++; issues.Add(new(i + 1, email, "Duplicate (existing status preserved)")); continue; }
                 if (!ValidContactText(Get(input.FirstNameColumn), Get(input.LastNameColumn), Get(input.CompanyColumn), input.ListName, input.ConsentSource))
                 { issues.Add(new(i + 1, email, "Field exceeds 250 characters")); continue; }
-                existing.Add(email); db.Contacts.Add(new Contact { Email = email, FirstName = Get(input.FirstNameColumn), LastName = Get(input.LastNameColumn),
-                    Company = Get(input.CompanyColumn), ListName = input.ListName.Trim(), ConsentSource = input.ConsentSource.Trim() }); added++;
+                existing.Add(email); var importedContact = new Contact { Email = email, FirstName = Get(input.FirstNameColumn), LastName = Get(input.LastNameColumn),
+                    Company = Get(input.CompanyColumn), ListName = input.ListName.Trim(), ConsentSource = input.ConsentSource.Trim() }; db.Contacts.Add(importedContact); AudienceRules.Log(db, importedContact.Id, "Subscribed", input.ConsentSource); added++;
             }
             await db.SaveChangesAsync(); return Results.Ok(new { added, duplicates = duplicate, rejected = issues.Count - duplicate, issues });
         });
@@ -119,10 +150,12 @@ public static class StudioHost
             await Suppress(db, c, input.Reason); return Results.Ok(c);
         });
         api.MapGet("/campaigns", async (Store db) => await db.Campaigns.AsNoTracking().OrderByDescending(x => x.CreatedAt).ToListAsync());
-        api.MapPost("/preview", (CampaignInput input) =>
+        api.MapPost("/preview", async (CampaignInput input, Guid? contactId, Store db) =>
         {
             var error = ValidateCampaign(input); if (error is not null) return Error(error);
-            var c = new Campaign(); Apply(c, input); return Results.Content(EmailRenderer.Html(c), "text/html");
+            var c = new Campaign(); Apply(c, input);
+            var contact = contactId.HasValue ? await db.Contacts.FindAsync(contactId.Value) : null;
+            return Results.Content(contact is null ? EmailRenderer.Html(c) : EmailRenderer.Html(c, contact.FirstName, contact.LastName, contact.Email), "text/html");
         });
         api.MapPost("/campaigns", async (CampaignInput input, Store db) =>
         {
@@ -136,13 +169,15 @@ public static class StudioHost
             // Acquire a row write lock before reading; scheduling and edits serialize in both databases.
             var locked = await db.Campaigns.Where(x => x.Id == id && x.State == "Draft").ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Draft"));
             if (locked == 0) return Results.Conflict(new { error = "Only drafts can be edited. Duplicate this campaign to change it." });
-            var c = await db.Campaigns.FindAsync(id); Apply(c!, input); await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(c);
+            var c = await db.Campaigns.FindAsync(id);
+            if (c!.Revision != input.ExpectedRevision) return Results.Conflict(new { error = "This draft changed in another editor. Reload or save a separate copy." });
+            Apply(c, input); c.Revision++; await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(c);
         });
         api.MapPost("/campaigns/{id:guid}/duplicate", async (Guid id, Store db) =>
         {
             var old = await db.Campaigns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id); if (old is null) return Results.NotFound();
             old.Id = Guid.NewGuid(); old.Name = old.Name.Length > 240 ? old.Name[..240] + " copy" : old.Name + " copy";
-            old.State = "Draft"; old.ScheduledAt = null; old.Mode = "Capture"; old.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            old.State = "Draft"; old.ScheduledAt = null; old.Revision = 0; old.SenderId = null; old.Issue = ""; old.Mode = "Capture"; old.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             db.Add(old); await db.SaveChangesAsync(); return Results.Ok(old);
         });
         api.MapGet("/campaigns/{id:guid}/preview", async (Guid id, Store db) =>
@@ -152,7 +187,12 @@ public static class StudioHost
         api.MapPost("/campaigns/{id:guid}/schedule", async (Guid id, ScheduleInput input, Store db) =>
         {
             if (input.Mode is not ("Capture" or "Smtp")) return Error("Choose Capture or Smtp.");
-            if (input.Mode == "Smtp" && (!settings.LiveReady || !input.ConfirmLiveSend)) return Error("Configure a sending connection and explicitly confirm live sending.");
+            SenderProfile? sender = null;
+            if (input.Mode == "Smtp")
+            {
+                sender = input.SenderId.HasValue ? await db.Senders.FindAsync(input.SenderId.Value) : null;
+                if (!settings.EnableLiveSending || !settings.PublicLinksReady || !input.ConfirmLiveSend || sender?.VerifiedAt is null) return Error("Select a tested SMTP connection, configure HTTPS links, enable live sending, and confirm sending.");
+            }
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             if (input.ScheduledAt < now - 60 || input.ScheduledAt > now + 366 * 86400L) return Error("Choose a time between now and one year from now.");
             await using var tx = await db.Database.BeginTransactionAsync();
@@ -160,20 +200,27 @@ public static class StudioHost
             if (locked == 0) return Results.Conflict(new { error = "This campaign has already been scheduled or does not exist." });
             var c = await db.Campaigns.FindAsync(id);
             if (string.IsNullOrWhiteSpace(c!.Subject)) return Error("Add a subject before scheduling.");
-            var audience = await db.Contacts.Where(x => x.ListName == c.ListName && !x.Suppressed).ToListAsync();
+            var audience = await (await AudienceRules.CampaignAudience(db, c)).ToListAsync();
             if (audience.Count == 0) return Error("This list has no subscribed contacts.");
+            await MarketingEndpoints.ValidateAssets(db, settings, c);
+            c.SenderId = sender?.Id; c.SenderEmail = sender?.FromEmail ?? "preview@example.com"; c.SenderName = sender?.FromName ?? "Campaign Studio"; c.ReplyTo = sender?.ReplyTo ?? ""; c.ReturnPath = sender?.ReturnPath ?? "";
             foreach (var contact in audience) db.Jobs.Add(new RecipientJob { CampaignId = id, ContactId = contact.Id, Email = contact.Email,
-                FirstName = contact.FirstName, LastName = contact.LastName, MessageId = $"{id:N}.{contact.Id:N}@campaign-studio.local" });
+                FirstName = contact.FirstName, LastName = contact.LastName, MessageId = $"{id:N}.{contact.Id:N}@{(sender is null ? "campaign-studio.local" : sender.FromEmail.Split('@').Last())}" });
             c.State = "Scheduled"; c.Mode = input.Mode; c.ScheduledAt = Math.Max(now, input.ScheduledAt);
             await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(new { campaign = c, recipients = audience.Count });
         });
         api.MapPost("/campaigns/{id:guid}/pause", async (Guid id, Store db) => await ChangeState(db, id, new[] { "Scheduled", "Running" }, "Paused"));
-        api.MapPost("/campaigns/{id:guid}/resume", async (Guid id, Store db) => await ChangeState(db, id, new[] { "Paused" }, "Scheduled"));
+        api.MapPost("/campaigns/{id:guid}/resume", async (Guid id, Store db) =>
+        {
+            var c = await db.Campaigns.FindAsync(id); if (c is null) return Results.NotFound();
+            if (c.Mode == "Smtp" && (!settings.EnableLiveSending || !settings.PublicLinksReady || !await db.Senders.AnyAsync(x => x.Id == c.SenderId && x.VerifiedAt != null))) return Error("Retest the SMTP connection before resuming.");
+            return await ChangeState(db, id, new[] { "Paused" }, "Scheduled");
+        });
         api.MapPost("/campaigns/{id:guid}/cancel", async (Guid id, Store db) =>
         {
             await using var tx = await db.Database.BeginTransactionAsync();
             var r = await ChangeState(db, id, new[] { "Scheduled", "Running", "Paused" }, "Cancelled");
-            await db.Jobs.Where(x => x.CampaignId == id && x.State == "Pending").ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Cancelled"));
+            await db.Jobs.Where(x => x.CampaignId == id && (x.State == "Pending" || x.State == "Deferred")).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Cancelled"));
             await tx.CommitAsync(); return r;
         });
         api.MapGet("/campaigns/{id:guid}/report", async (Guid id, Store db) =>
@@ -214,10 +261,17 @@ public static class StudioHost
         if (i.Subject.Contains('\r') || i.Subject.Contains('\n')) return "The subject must be a single line.";
         if (!EmailRenderer.ValidAccent(i.Accent)) return "Choose a valid accent color.";
         if (i.ButtonLabel.Length > 0 && !EmailRenderer.ValidUrl(i.ButtonUrl)) return "Button links must start with https:// or http://.";
+        if (i.BlocksJson is null || i.SourceHtml is null || i.AttachmentIdsJson is null || i.CalendarJson is null || i.UtmCampaign is null || i.HistoryMode is not ("All" or "Sent" or "NotSent") || i.UtmCampaign.Length > 250) return "Check advanced campaign settings.";
+        if (i.BlocksJson.Length > 0) EmailDesign.Blocks(i.BlocksJson);
+        if (i.SourceHtml.Length > 0) EmailDesign.CleanHtml(i.SourceHtml);
+        if (i.AttachmentIdsJson.Length > 5000 || EmailDesign.Read<Guid[]>(i.AttachmentIdsJson).Length > 20) return "Attach at most 20 files.";
+        if (i.CalendarJson.Length > 0) EmailDesign.Calendar(EmailDesign.Read<CalendarEvent>(i.CalendarJson), Guid.Empty);
         return null;
     }
     private static void Apply(Campaign c, CampaignInput i)
     {
+        c.BlocksJson = i.BlocksJson; c.SourceHtml = i.SourceHtml; c.SegmentId = i.SegmentId; c.HistoryCampaignId = i.HistoryCampaignId; c.HistoryMode = i.HistoryMode;
+        c.AttachmentIdsJson = i.AttachmentIdsJson; c.CalendarJson = i.CalendarJson; c.UtmCampaign = i.UtmCampaign;
         c.Name = i.Name.Trim(); c.Subject = i.Subject; c.Preheader = i.Preheader; c.Heading = i.Heading; c.Body = i.Body;
         c.ButtonLabel = i.ButtonLabel; c.ButtonUrl = i.ButtonUrl; c.Footer = i.Footer; c.Accent = i.Accent; c.ListName = i.ListName.Trim();
     }
@@ -231,8 +285,9 @@ public static class StudioHost
     private static async Task Suppress(Store db, Contact c, string reason)
     {
         await using var tx = await db.Database.BeginTransactionAsync();
+        AudienceRules.Log(db, c.Id, "Unsubscribed", reason);
         c.Suppressed = true; c.SuppressionReason = reason; await db.SaveChangesAsync();
-        await db.Jobs.Where(x => x.ContactId == c.Id && x.State == "Pending").ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Suppressed"));
+        await db.Jobs.Where(x => x.ContactId == c.Id && (x.State == "Pending" || x.State == "Deferred")).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Suppressed"));
         await tx.CommitAsync();
     }
 }

@@ -1,8 +1,8 @@
-# Campaign Studio — working preview 0.1.0
+# Campaign Studio — working preview 0.2.0
 
 A Windows-first email campaign application with a C#/.NET backend and an optional hosted cloud workspace. This is the first implementation milestone, not a completed SendBlaster replacement.
 
-This repository contains the recovered **0.1.0 source baseline**. The portable download described below is distributed separately; compiled executables are not committed here. See [source status](docs/SOURCE-STATUS.md) for recovery and verification details.
+The repository now includes the 0.2 implementation built on the recovered 0.1 baseline. New features include encrypted SMTP connections and tests, bounded safe retries, recorded attempts, database upgrades, block/source editing, HTML/EML import, attachments, calendar events, segments, list moves, exclusions, reusable content, and maintenance tools. See `docs/VALIDATION-V02.md` for current verification. The separately distributed 0.1 portable ZIP does not include these changes.
 
 ## Try the portable Windows preview
 
@@ -16,28 +16,21 @@ The Windows portable binary was cross-compiled on Linux. It has **not been launc
 
 Your local portable data is saved under `%LOCALAPPDATA%\CampaignStudio-Portable`. Secrets are protected with Windows DPAPI for the current user. Native-shell data uses `%LOCALAPPDATA%\CampaignStudio`. The two previews use separate databases. Back up the database and protected unsubscribe secret together, while the app is stopped. DPAPI secrets cannot simply be copied to another Windows account.
 
-## Implemented
+## Implemented in 0.2
 
-- Quiet, responsive interface with top navigation, contextual empty states, and a complete guide for the available controls.
-- Contacts, one-list-per-contact organization, permission/source recording, paging, search, status/list filters, and cross-workspace suppression.
-- UTF-8 CSV import with column mapping, quoted multiline parsing, deduplication, rejected-row exports, and a compact success dialog with Close and Export list.
-- Original newsletter, announcement, and welcome templates. Structured editor for heading, body, button, accent, preheader, footer, and merge fields.
-- Safe HTML generation, desktop/mobile preview, text alternative, personalized MIME email, draft persistence, and HTML/CSV exports.
-- Durable recipient snapshots, scheduling in UTC, pause/resume/cancel, duplicate-as-draft, and test capture files.
-- TLS SMTP implementation behind server configuration and per-campaign confirmation. Live SMTP is **not verified against a real provider**.
-- Signed unsubscribe tokens, confirmation GET, one-click POST, and suppression of pending recipients.
-- SMTP acceptance is reported separately from delivery. Interrupted sends become Unknown and are not automatically retried.
-- SQLite local storage, PostgreSQL adapter for hosted instances, Docker configuration, and a WinUI 3/WebView2 shell source project.
+- Contact CSV mapping, deduplication, permission/source recording, suppression, paging, and history export.
+- Saved audience segments with All/Any rules; list merge/move; address/domain exclusions; previous-campaign accepted/new-contact targeting.
+- Quick layout, ordered draggable blocks, two-column text blocks, undo/redo, sanitized HTML source, HTML/EML import, personalized preview, revision-checked autosave.
+- Reusable templates/snippets/notes; uploaded immutable attachments for all or specific recipients; UTC iCalendar attachments; UTM campaign tags.
+- Encrypted SMTP profiles, required TLS, credential verification without sending, sender/reply-to/envelope-return identities, persistent pacing and retry history.
+- Persisted scheduling, pause/resume/cancel, safe transient retries, failed-only manual retry, Unknown holds, final unsubscribe gate after authentication, explicit hard-bounce suppression.
+- SQLite/PostgreSQL migrations, verified legacy SQLite recovery snapshots, local workspace ownership lock, SQLite online backup and database statistics maintenance.
 
-## Boundaries of this version
+## Current boundaries
 
-- One workspace and one administrator access key per server. No account login, tenant management, team roles, licensing, billing, or automatic local/cloud synchronization.
-- The email editor is a bundled HTML/JavaScript interface backed by C# HTML rendering. It does not yet use the blueprint's React/MJML designer, drag-and-drop blocks, attachments, arbitrary HTML import, image uploads, or template versioning.
-- No delivery webhooks, bounce/complaint ingestion, engagement tracking, DNS/MX validation, automated follow-ups, A/B tests, or provider rate/quota profiles. Live transport sends serially with a minimum one-second interval; this is not a throughput claim.
-- Failures are held for review. Bounded automatic retries and provider reconciliation are future work. A duplicate campaign is a new send: confirm that no Unknown recipient was already accepted before using it as a retry.
-- Desktop local execution requires the PC/server to stay on. Hosted execution continues while the cloud server remains running, even if the Windows PC is off. Only that server's audience/drafts participate; no synchronization is implied.
-- PostgreSQL configuration is supplied but has not been integration-tested here. Database initialization uses `EnsureCreated` for a new pilot database; schema migrations and upgrade/rollback paths are not implemented.
-- The native WinUI shell, portable launcher, clean-PC installation, code signing, and Windows UI accessibility require Windows testing. There is no signed installer in this release.
+This remains a single-workspace preview. Real-provider tests, inbox-client rendering, Windows runtime verification, native installer signing, and cloud deployment remain release gates. There is no customer account/tenant system, licensing, billing, automatic desktop/cloud synchronization, open tracking, POP3 processing, signup forms, JotForm connector, direct-to-MX sending, 100-connection sending, VBScript/JavaScript tag engine, native MailStyler launcher, or image crop/filter tool in this checkpoint. UTM parameters measure website traffic through your analytics; SMTP acceptance does not prove inbox delivery.
+
+HTML source is retained in drafts; outgoing HTML and previews are sanitized, so active markup is removed. Each contact has one list; list merges move contacts and preserve suppression. Retry never automatically resends uncertain SMTP jobs. Back up attachments/captures and the encryption/unsubscribe secret with the database. PostgreSQL production upgrades require a verified server backup.
 
 ## Source projects
 

@@ -19,16 +19,23 @@ public static partial class EmailRenderer
         string link = ValidUrl(c.ButtonUrl) ? WebUtility.HtmlEncode(c.ButtonUrl) : "https://example.com";
         var button = string.IsNullOrWhiteSpace(c.ButtonLabel) ? "" : $"<p style='margin:28px 0'><a href='{link}' style='display:inline-block;padding:14px 22px;border-radius:6px;background:{color};color:white;text-decoration:none;font-weight:bold'>{E(c.ButtonLabel)}</a></p>";
         var unsub = unsubscribe.Length == 0 ? "<span>Unsubscribe link is added when scheduled.</span>" : $"<a href='{WebUtility.HtmlEncode(unsubscribe)}' style='color:#65716c'>Unsubscribe</a>";
-        return $"""
+        if (!string.IsNullOrWhiteSpace(c.SourceHtml))
+        {
+            string rendered = Merge(c.SourceHtml, WebUtility.HtmlEncode(first), WebUtility.HtmlEncode(last), WebUtility.HtmlEncode(email));
+            return EmailDesign.FinishHtml(c, EmailDesign.CleanHtml(rendered) + "<p>" + E(c.Footer) + "<br>" + unsub + "</p>");
+        }
+        string content = string.IsNullOrWhiteSpace(c.BlocksJson)
+            ? "<h1 style='font-size:28px;line-height:1.3'>" + E(c.Heading) + "</h1><p>" + E(c.Body).Replace("\n", "<br>") + "</p>" + button
+            : EmailDesign.RenderBlocks(c, first, last, email);
+        return EmailDesign.FinishHtml(c, $"""
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="margin:0;background:#f3f5f4;font:16px/1.7 Arial,sans-serif;color:#23312c">
         <div style="display:none;max-height:0;overflow:hidden">{E(c.Preheader)}</div>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 12px">
         <table role="presentation" width="600" style="width:100%;max-width:600px;background:white;border-radius:10px" cellpadding="0" cellspacing="0"><tr><td style="padding:40px 32px">
-        <div style="height:4px;background:{color};margin-bottom:28px"></div><h1 style="font-size:28px;line-height:1.3">{E(c.Heading)}</h1>
-        <p style="white-space:pre-line">{E(c.Body)}</p>{button}
+        <div style="height:4px;background:{color};margin-bottom:28px"></div>{content}
         <hr style="border:0;border-top:1px solid #e4e9e6;margin:32px 0"><p style="font-size:12px;color:#65716c;white-space:pre-line">{E(c.Footer)}<br>{unsub}</p>
         </td></tr></table></td></tr></table></body></html>
-        """;
+        """);
     }
 }

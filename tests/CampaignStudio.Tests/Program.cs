@@ -96,6 +96,7 @@ try
     using (var scope = host.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<Store>();
+        var interruptedCampaign = (await db.Campaigns.FindAsync(copy))!; interruptedCampaign.Mode = "Smtp";
         var job = await db.Jobs.SingleAsync(x => x.CampaignId == copy); job.State = "Sending"; job.StartedAt = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeSeconds(); await db.SaveChangesAsync();
     }
     await Tick();
@@ -127,6 +128,7 @@ try
     var restartedCampaigns = await Json(await client.GetAsync("/api/campaigns"));
     Check(restartedCampaigns.EnumerateArray().Any(x => x.GetProperty("id").GetGuid() == noAudience && x.GetProperty("state").GetString() == "Draft"), "Drafts survive a server restart");
     Check((await Json(await client.GetAsync($"/api/campaigns/{copy}/report"))).GetProperty("jobs")[0].GetProperty("state").GetString() == "Unknown", "Interrupted-job review state survives a server restart");
+    await ExtendedChecks.Run(Check);
     Console.WriteLine($"\n{passed} checks passed. No real emails sent.");
 }
 finally

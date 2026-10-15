@@ -18,6 +18,21 @@ public sealed class Campaign
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "Untitled campaign";
+    public string BlocksJson { get; set; } = "";
+    public string SourceHtml { get; set; } = "";
+    public Guid? SegmentId { get; set; }
+    public Guid? HistoryCampaignId { get; set; }
+    public string HistoryMode { get; set; } = "All";
+    public string AttachmentIdsJson { get; set; } = "[]";
+    public string CalendarJson { get; set; } = "";
+    public string UtmCampaign { get; set; } = "";
+    public int Revision { get; set; }
+    public Guid? SenderId { get; set; }
+    public string SenderEmail { get; set; } = "";
+    public string SenderName { get; set; } = "";
+    public string ReplyTo { get; set; } = "";
+    public string ReturnPath { get; set; } = "";
+    public string Issue { get; set; } = "";
     public string Subject { get; set; } = "";
     public string Preheader { get; set; } = "";
     public string Heading { get; set; } = "Hello {{firstName}}";
@@ -46,6 +61,9 @@ public sealed class RecipientJob
     public long? StartedAt { get; set; }
     public long? FinishedAt { get; set; }
     public string Detail { get; set; } = "";
+    public int Attempts { get; set; }
+    public int RetryCount { get; set; }
+    public long? NextAttemptAt { get; set; }
 }
 
 public sealed record ContactInput(string Email, string FirstName = "", string LastName = "",
@@ -54,9 +72,11 @@ public sealed record ImportInput(string Csv, int EmailColumn = 0, int FirstNameC
     int LastNameColumn = 2, int CompanyColumn = 3, bool HasHeader = true,
     string ListName = "Main audience", string ConsentSource = "", bool ConsentConfirmed = false);
 public sealed record ImportIssue(int Row, string Email, string Reason);
-public sealed record ScheduleInput(long ScheduledAt, string Mode = "Capture", bool ConfirmLiveSend = false);
+public sealed record ScheduleInput(long ScheduledAt, string Mode = "Capture", bool ConfirmLiveSend = false, Guid? SenderId = null);
 public sealed record CampaignInput(string Name, string Subject, string Preheader, string Heading, string Body,
-    string ButtonLabel, string ButtonUrl, string Footer, string Accent, string ListName);
+    string ButtonLabel, string ButtonUrl, string Footer, string Accent, string ListName,
+    string BlocksJson = "", string SourceHtml = "", Guid? SegmentId = null, Guid? HistoryCampaignId = null,
+    string HistoryMode = "All", string AttachmentIdsJson = "[]", string CalendarJson = "", string UtmCampaign = "", int ExpectedRevision = 0);
 public sealed record SuppressionInput(string Reason = "Manually excluded");
 
 public static class ContactRules

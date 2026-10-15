@@ -17,6 +17,8 @@ public sealed class StudioSettings
     public int DelayMilliseconds { get; init; } = 1000;
     public int LeaseSeconds { get; init; } = 300;
     public bool StartWorker { get; init; } = true;
+    public int RetryBaseSeconds { get; init; } = 30;
+    public bool PublicLinksReady => Uri.TryCreate(PublicBaseUrl, UriKind.Absolute, out var u) && u.Scheme == "https" && u.UserInfo.Length == 0 && u.Query.Length == 0 && u.Fragment.Length == 0;
     public bool LiveReady => EnableLiveSending && SmtpHost.Length > 0 && Core.ContactRules.ValidEmail(FromEmail)
         && Uri.TryCreate(PublicBaseUrl, UriKind.Absolute, out var u) && u.Scheme == "https";
     public static StudioSettings FromConfiguration(IConfiguration c) => new()
