@@ -1,5 +1,6 @@
-# Source status — 0.2 development
+# Source status
+The original recovered 0.1 baseline is preserved in Git history. Version 0.2 adds the marketing workspace, database migrations, native/portable build scripts and CI coverage.
 
-The repository started from the verified 0.1 archive. Later unsaved work was lost during an environment disconnect; the 0.2 code in this repository is newly implemented and independently checked.
+An execution-environment outage interrupted a larger local checkpoint. Its feature work was reconstructed into feature/complete-marketing-workspace and verified through GitHub Actions before promotion. The implementation, tests and migrations now live in this repository; the old 0.1 ZIP is historical.
 
-The separate CampaignStudio-0.1.0.zip remains the old portable download. GitHub source is the current development version. See VALIDATION-V02.md for actual evidence and README.md for current limitations. No live cloud instance or real email sending has been performed.
+See FEATURE-MATRIX.md for scope and VALIDATION-V02.md for evidence. A source checkpoint is not a public cloud deployment or a signed production release.

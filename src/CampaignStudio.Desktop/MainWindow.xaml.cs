@@ -64,6 +64,7 @@ public sealed partial class MainWindow : Window
                 server = StudioHost.Build(["--urls", "http://127.0.0.1:0"], new StudioSettings
                 { ApiKey = key, TokenSecret = Encoding.UTF8.GetString(secret), DataDirectory = folder,
                     EnableLiveSending = string.Equals(Environment.GetEnvironmentVariable("Studio__EnableLiveSending"),"true",StringComparison.OrdinalIgnoreCase),
+                    MaxConcurrentSends = int.TryParse(Environment.GetEnvironmentVariable("Studio__MaxConcurrentSends"),out int concurrency) ? Math.Clamp(concurrency,1,100) : 4,
                     EnableDirectSending = string.Equals(Environment.GetEnvironmentVariable("Studio__EnableDirectSending"),"true",StringComparison.OrdinalIgnoreCase),
                     PublicBaseUrl = Environment.GetEnvironmentVariable("Studio__PublicBaseUrl") ?? "",
                     ShortcutsJson = Environment.GetEnvironmentVariable("Studio__ShortcutsJson") ?? "{}",

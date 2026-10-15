@@ -5,7 +5,15 @@ namespace CampaignStudio.Desktop;
 public partial class App : Microsoft.UI.Xaml.Application
 {
     private Window? window;
-    public App() => InitializeComponent();
+    public App()
+    {
+        UnhandledException += (_, args) =>
+        {
+            string? result=Environment.GetEnvironmentVariable("CAMPAIGN_STUDIO_SMOKE_RESULT");
+            if(!string.IsNullOrWhiteSpace(result)) File.WriteAllText(result,args.Exception.ToString());
+        };
+        InitializeComponent();
+    }
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         window = new MainWindow(); window.Activate();
