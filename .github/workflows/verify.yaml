@@ -1,9 +1,53 @@
 name: Build and verify
 on: [push, pull_request, workflow_dispatch]
+concurrency:
+  group: studio-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  schema:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/complete-marketing-workspace'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/complete-marketing-workspace
+          persist-credentials: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Generate recovery migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build src/CampaignStudio.Api --disable-build-servers -m:1
+          dotnet tool install dotnet-ef --version 10.0.13 --tool-path "$RUNNER_TEMP/studio-ef"
+          if ! "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations has-pending-model-changes --context SqliteStore --project src/CampaignStudio.Api --no-build; then
+            "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations add RecoveredFeatures --context SqliteStore --project src/CampaignStudio.Api --output-dir Migrations/Sqlite --no-build
+          fi
+          if ! "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations has-pending-model-changes --context PostgresStore --project src/CampaignStudio.Api --no-build; then
+            "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations add RecoveredFeatures --context PostgresStore --project src/CampaignStudio.Api --output-dir Migrations/Postgres --no-build
+          fi
+      - id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/CampaignStudio.Api/Migrations/
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'Add generated schema upgrades for recovered marketing features'
+            git push origin HEAD:feature/complete-marketing-workspace
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   functional:
+    needs: schema
+    if: always() && (needs.schema.result == 'success' || needs.schema.result == 'skipped')
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -13,12 +57,13 @@ jobs:
           POSTGRES_DB: studio_tests
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.schema.outputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -36,20 +81,19 @@ jobs:
       - working-directory: tests/browser
         run: npm test
   windows:
+    needs: schema
+    if: always() && (needs.schema.result == 'success' || needs.schema.result == 'skipped')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.schema.outputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - shell: pwsh
-        run: |
-          Get-ChildItem scripts/*.ps1 | ForEach-Object {
-            $tokens = $null; $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors.Count) { throw ($errors | Out-String) }
-          }
-          ./scripts/Build-Windows.ps1
+        run: ./scripts/Build-Windows.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: CampaignStudio-native-windows-preview

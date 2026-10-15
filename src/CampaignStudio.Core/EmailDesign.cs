@@ -27,14 +27,16 @@ public static class EmailDesign
             if (b is null || b.Content is null || b.Url is null || b.Label is null || b.Content.Length > 20000 || b.Url.Length > 2000 || b.Label.Length > 500
                 || b.Type is not ("heading" or "text" or "image" or "button" or "divider" or "spacer" or "columns") || b.Height is < 0 or > 200)
                 throw new FormatException("Check block type, text length, and spacing.");
-            if (b.Type is "button" or "image" && (!EmailRenderer.ValidUrl(b.Url) || b.Type == "image" && !b.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+            bool localImage = System.Text.RegularExpressions.Regex.IsMatch(b.Url, @"^/media/[a-f0-9]{32}\.png\?token=[A-F0-9]{64}$");
+            if (b.Type is "button" or "image" && !(b.Type == "image" && localImage) && (!EmailRenderer.ValidUrl(b.Url) || b.Type == "image" && !b.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
                 throw new FormatException("Images need HTTPS; buttons need an HTTP or HTTPS link.");
         }
         return blocks;
     }
     public static string RenderBlocks(Campaign c, string first, string last, string email)
     {
-        string E(string s) => WebUtility.HtmlEncode(EmailRenderer.Merge(ScriptTags.Resolve(c.TagsJson, s, first, last, email), first, last, email)).Replace("\r\n", "\n").Replace("\n", "<br>");
+        var tagValues = new Dictionary<string,string>();
+        string E(string s) => WebUtility.HtmlEncode(EmailRenderer.Merge(ScriptTags.Resolve(c.TagsJson, s, first, last, email, tagValues), first, last, email)).Replace("\r\n", "\n").Replace("\n", "<br>");
         return string.Join("", Blocks(c.BlocksJson).Select(b => b.Type switch
         {
             "heading" => $"<h2 style='line-height:1.3'>{E(b.Content)}</h2>",
@@ -60,10 +62,18 @@ public static class EmailDesign
         }
         return doc.DocumentElement.OuterHtml;
     }
-    public static string Text(string html) => new HtmlParser().ParseDocument(html).Body?.TextContent ?? "";
+    public static string Text(string html)
+    {
+        var doc = new HtmlParser().ParseDocument(html);
+        foreach (var a in doc.QuerySelectorAll("a[href]")) a.TextContent += " (" + a.GetAttribute("href") + ")";
+        foreach (var br in doc.QuerySelectorAll("br")) br.Replace(doc.CreateTextNode("\n"));
+        foreach (var block in doc.QuerySelectorAll("p,h1,h2,h3,tr,div")) block.AppendChild(doc.CreateTextNode("\n"));
+        foreach (var img in doc.QuerySelectorAll("img[alt]")) img.Replace(doc.CreateTextNode(img.GetAttribute("alt") ?? ""));
+        return doc.Body?.TextContent.Trim() ?? "";
+    }
     public static string Calendar(CalendarEvent c, Guid campaignId)
     {
-        if (c.End <= c.Start || c.Title.Length is < 1 or > 250 || c.Description.Length > 10000 || c.Location.Length > 500) throw new FormatException("Check event title, dates, and length.");
+        if (c is null || c.Title is null || c.Description is null || c.Location is null || c.End <= c.Start || c.Title.Length is < 1 or > 250 || c.Description.Length > 10000 || c.Location.Length > 500) throw new FormatException("Check event title, dates, and length.");
         string Escape(string s) => s.Replace("\\", "\\\\").Replace("\r", "").Replace("\n", "\\n").Replace(";", "\\;").Replace(",", "\\,");
         var lines = new[] { "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Campaign Studio//EN", "METHOD:PUBLISH", "BEGIN:VEVENT", $"UID:{campaignId:N}@campaign-studio.local", "DTSTAMP:" + DateTimeOffset.UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'"), "DTSTART:" + c.Start.UtcDateTime.ToString("yyyyMMdd'T'HHmmss'Z'"), "DTEND:" + c.End.UtcDateTime.ToString("yyyyMMdd'T'HHmmss'Z'"), "SUMMARY:" + Escape(c.Title), "DESCRIPTION:" + Escape(c.Description), "LOCATION:" + Escape(c.Location), "END:VEVENT", "END:VCALENDAR" };
         // Fold by UTF-8 bytes so calendar clients accept long international text.

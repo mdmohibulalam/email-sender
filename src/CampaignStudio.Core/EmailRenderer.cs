@@ -14,7 +14,8 @@ public static partial class EmailRenderer
     public static bool ValidAccent(string value) => ColorPattern().IsMatch(value);
     public static string Html(Campaign c, string first = "Alex", string last = "", string email = "alex@example.com", string unsubscribe = "")
     {
-        string E(string text) => WebUtility.HtmlEncode(Merge(ScriptTags.Resolve(c.TagsJson, text, first, last, email), first, last, email));
+        var tagValues = new Dictionary<string,string>();
+        string E(string text) => WebUtility.HtmlEncode(Merge(ScriptTags.Resolve(c.TagsJson, text, first, last, email, tagValues), first, last, email));
         string color = ValidAccent(c.Accent) ? c.Accent : "#176b56";
         string link = ValidUrl(c.ButtonUrl) ? WebUtility.HtmlEncode(c.ButtonUrl) : "https://example.com";
         var button = string.IsNullOrWhiteSpace(c.ButtonLabel) ? "" : $"<p style='margin:28px 0'><a href='{link}' style='display:inline-block;padding:14px 22px;border-radius:6px;background:{color};color:white;text-decoration:none;font-weight:bold'>{E(c.ButtonLabel)}</a></p>";

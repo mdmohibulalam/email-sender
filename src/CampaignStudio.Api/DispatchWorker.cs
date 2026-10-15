@@ -7,7 +7,8 @@ namespace CampaignStudio.Api;
 
 public sealed class DispatchWorker(IServiceScopeFactory scopes, StudioSettings settings, ILogger<DispatchWorker> logger) : BackgroundService
 {
-    protected override async Task ExecuteAsync(CancellationToken stop)
+    protected override Task ExecuteAsync(CancellationToken stop) => Task.WhenAll(Enumerable.Range(0, Math.Clamp(settings.MaxConcurrentSends, 1, 100)).Select(_ => RunLoop(stop)));
+    private async Task RunLoop(CancellationToken stop)
     {
         while (!stop.IsCancellationRequested)
         {
@@ -24,23 +25,30 @@ public sealed class DispatchWorker(IServiceScopeFactory scopes, StudioSettings s
         var clock = scope.ServiceProvider.GetRequiredService<TimeProvider>();
         long now = clock.GetUtcNow().ToUnixTimeSeconds(), millis = clock.GetUtcNow().ToUnixTimeMilliseconds();
         await Recover(db, now, stop);
-        try { await Inboxes.ProcessOne(db, scope.ServiceProvider, now, stop); } catch (FormatException) { }
-        await SignupForms.ProcessOne(db, settings, scope.ServiceProvider, now, stop);
+        bool liveAvailable = settings.EnableLiveSending && settings.PublicLinksReady;
         var campaign = await db.Campaigns.AsNoTracking().Where(c => (c.State == "Scheduled" || c.State == "Running") && c.ScheduledAt <= now &&
-            (db.Jobs.Any(j => j.CampaignId == c.Id && (j.State == "Pending" || j.State == "Deferred") && (j.NextAttemptAt == null || j.NextAttemptAt <= now)) ||
-            !db.Jobs.Any(j => j.CampaignId == c.Id && (j.State == "Pending" || j.State == "Deferred" || j.State == "Sending"))))
+            (!db.Jobs.Any(j => j.CampaignId == c.Id && (j.State == "Pending" || j.State == "Deferred" || j.State == "Sending")) ||
+            db.Jobs.Any(j => j.CampaignId == c.Id && (j.State == "Pending" || j.State == "Deferred") && (j.NextAttemptAt == null || j.NextAttemptAt <= now)) &&
+                (c.Mode == "Capture" || !liveAvailable || !db.Senders.Any(s => s.Id == c.SenderId && s.VerifiedAt != null) ||
+                 db.Senders.Any(s => s.Id == c.SenderId && s.NextSendAt <= millis &&
+                    db.Jobs.Count(j => j.State == "Sending" && db.Campaigns.Any(other => other.Id == j.CampaignId && other.SenderId == s.Id)) +
+                    db.Signups.Count(r => r.State == "Sending" && db.Forms.Any(f => f.Id == r.FormId && f.SenderId == s.Id)) < s.MaxConnections))))
             .OrderBy(c => c.ScheduledAt).FirstOrDefaultAsync(stop);
         if (campaign is null) return;
-        var job = await db.Jobs.AsNoTracking().Where(x => x.CampaignId == campaign.Id && (x.State == "Pending" || x.State == "Deferred") && (x.NextAttemptAt == null || x.NextAttemptAt <= now)).OrderBy(x => x.Email).FirstOrDefaultAsync(stop);
-        if (job is null)
-        {
-            var state = await db.Jobs.AnyAsync(x => x.CampaignId == campaign.Id && (x.State == "Unknown" || x.State == "Failed"), stop) ? "NeedsReview" : "Completed";
-            await db.Campaigns.Where(x => x.Id == campaign.Id && (x.State == "Scheduled" || x.State == "Running")).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, state), stop); return;
-        }
+        RecipientJob? job = null;
         SenderProfile? sender = null;
         await using (var tx = await db.Database.BeginTransactionAsync(stop))
         {
-            if (await db.Campaigns.Where(x => x.Id == campaign.Id && (x.State == "Scheduled" || x.State == "Running")).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Running"), stop) == 0) return;
+            if (!await db.Jobs.AnyAsync(x => x.CampaignId == campaign.Id && (x.State == "Pending" || x.State == "Deferred" || x.State == "Sending"), stop))
+            {
+                if (await db.Campaigns.Where(x => x.Id == campaign.Id && (x.State == "Scheduled" || x.State == "Running")).ExecuteUpdateAsync(u => u.SetProperty(x => x.State, "Running"), stop) == 0) return;
+                if (!await db.Jobs.AnyAsync(x => x.CampaignId == campaign.Id && (x.State == "Pending" || x.State == "Deferred" || x.State == "Sending"), stop))
+                {
+                    string finalState = await db.Jobs.AnyAsync(x => x.CampaignId == campaign.Id && (x.State == "Unknown" || x.State == "Failed"), stop) ? "NeedsReview" : "Completed";
+                    await db.Campaigns.Where(x => x.Id == campaign.Id && x.State == "Running").ExecuteUpdateAsync(u => u.SetProperty(x => x.State, finalState), stop);
+                }
+                await tx.CommitAsync(stop); return;
+            }
             if (campaign.Mode == "Smtp")
             {
                 sender = await db.Senders.AsNoTracking().FirstOrDefaultAsync(x => x.Id == campaign.SenderId, stop);
@@ -49,8 +57,15 @@ public sealed class DispatchWorker(IServiceScopeFactory scopes, StudioSettings s
                     await db.Campaigns.Where(x => x.Id == campaign.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Paused").SetProperty(x => x.Issue, "Live sending unavailable. Retest the sender and check HTTPS configuration."), stop);
                     await tx.CommitAsync(stop); return;
                 }
+                millis = clock.GetUtcNow().ToUnixTimeMilliseconds();
                 if (await db.Senders.Where(x => x.Id == sender.Id && x.VerifiedAt != null && x.NextSendAt <= millis).ExecuteUpdateAsync(s => s.SetProperty(x => x.NextSendAt, millis + sender.DelayMilliseconds), stop) == 0) return;
+                int active = await db.Jobs.CountAsync(j => j.State == "Sending" && db.Campaigns.Any(c => c.Id == j.CampaignId && c.SenderId == sender.Id), stop)
+                    + await db.Signups.CountAsync(r => r.State == "Sending" && db.Forms.Any(f => f.Id == r.FormId && f.SenderId == sender.Id), stop);
+                if (active >= sender.MaxConnections) return;
             }
+            if (await db.Campaigns.Where(x => x.Id == campaign.Id && (x.State == "Scheduled" || x.State == "Running")).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Running"), stop) == 0) return;
+            job = await db.Jobs.AsNoTracking().Where(x => x.CampaignId == campaign.Id && (x.State == "Pending" || x.State == "Deferred") && (x.NextAttemptAt == null || x.NextAttemptAt <= now)).OrderBy(x => x.Email).FirstOrDefaultAsync(stop);
+            if (job is null) { await tx.CommitAsync(stop); return; }
             if (await db.Jobs.Where(x => x.Id == job.Id && (x.State == "Pending" || x.State == "Deferred") && (x.NextAttemptAt == null || x.NextAttemptAt <= now)).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Sending").SetProperty(x => x.StartedAt, now).SetProperty(x => x.Attempts, x => x.Attempts + 1), stop) == 0) return;
             job.Attempts++;
             db.Attempts.Add(new SendAttempt { JobId = job.Id, Number = job.Attempts, StartedAt = now }); await db.SaveChangesAsync(stop); await tx.CommitAsync(stop);
@@ -68,7 +83,9 @@ public sealed class DispatchWorker(IServiceScopeFactory scopes, StudioSettings s
             message.Subject = EmailRenderer.Merge(ScriptTags.Resolve(campaign.TagsJson, campaign.Subject, job.FirstName, job.LastName, job.Email), job.FirstName, job.LastName, job.Email).Replace('\r', ' ').Replace('\n', ' ');
             message.Headers.Add("List-Unsubscribe", "<" + unsubscribe + ">"); message.Headers.Add("List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
             string html = EmailRenderer.Html(campaign, job.FirstName, job.LastName, job.Email, unsubscribe);
+            if (campaign.TrackEngagement && campaign.Mode == "Smtp" && settings.PublicLinksReady) html = scope.ServiceProvider.GetRequiredService<EngagementTracking>().Rewrite(html, job);
             var body = new BodyBuilder { HtmlBody = html, TextBody = EmailDesign.Text(html) + "\nUnsubscribe: " + unsubscribe };
+            body.HtmlBody = await scope.ServiceProvider.GetRequiredService<ImageAssets>().Embed(html, body, db, stop);
             await MarketingEndpoints.ValidateAssets(db, settings, campaign);
             foreach (var id in EmailDesign.Read<Guid[]>(campaign.AttachmentIdsJson).Distinct())
             {

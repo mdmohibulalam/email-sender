@@ -6,6 +6,11 @@ public sealed class StudioSettings
     public string TokenSecret { get; init; } = "";
     public string DataDirectory { get; init; } = "data";
     public string? Postgres { get; init; }
+    public bool EnableDirectSending { get; init; }
+    public int MaxConcurrentSends { get; init; } = 4;
+    public string ExternalDesignerExecutable { get; init; } = "";
+    public string ExternalDesignerOutput { get; init; } = "";
+    public string ShortcutsJson { get; init; } = "{}";
     public bool EnableLiveSending { get; init; }
     public string PublicBaseUrl { get; init; } = "";
     public string SmtpHost { get; init; } = "";
@@ -23,6 +28,11 @@ public sealed class StudioSettings
         && Uri.TryCreate(PublicBaseUrl, UriKind.Absolute, out var u) && u.Scheme == "https";
     public static StudioSettings FromConfiguration(IConfiguration c) => new()
     {
+        MaxConcurrentSends = Math.Clamp(c.GetValue("Studio:MaxConcurrentSends", 4), 1, 100),
+        EnableDirectSending = c.GetValue<bool>("Studio:EnableDirectSending"),
+        ExternalDesignerExecutable = c["Studio:ExternalDesignerExecutable"] ?? "",
+        ExternalDesignerOutput = c["Studio:ExternalDesignerOutput"] ?? "",
+        ShortcutsJson = c["Studio:ShortcutsJson"] ?? "{}",
         ApiKey = c["Studio:ApiKey"] ?? "", TokenSecret = c["Studio:TokenSecret"] ?? "",
         DataDirectory = c["Studio:DataDirectory"] ?? Path.Combine(AppContext.BaseDirectory, "data"),
         Postgres = c["Studio:Postgres"], EnableLiveSending = c.GetValue<bool>("Studio:EnableLiveSending"),

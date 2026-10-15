@@ -86,6 +86,8 @@ public static class SignupForms
         await using(var tx=await db.Database.BeginTransactionAsync(ct))
         {
             if(await db.Senders.Where(x=>x.Id==sender.Id&&x.VerifiedAt!=null&&x.NextSendAt<=now*1000).ExecuteUpdateAsync(s=>s.SetProperty(x=>x.NextSendAt,now*1000+sender.DelayMilliseconds),ct)==0)return;
+            int active = await db.Jobs.CountAsync(j=>j.State=="Sending"&&db.Campaigns.Any(c=>c.Id==j.CampaignId&&c.SenderId==sender.Id),ct)+await db.Signups.CountAsync(r=>r.State=="Sending"&&db.Forms.Any(f=>f.Id==r.FormId&&f.SenderId==sender.Id),ct);
+            if(active>=sender.MaxConnections)return;
             if(await db.Signups.Where(x=>x.Id==request.Id&&x.State=="Pending"&&x.NextAttemptAt<=now).ExecuteUpdateAsync(s=>s.SetProperty(x=>x.State,"Sending").SetProperty(x=>x.NextAttemptAt,now).SetProperty(x=>x.Attempts,x=>x.Attempts+1),ct)==0)return;
             await tx.CommitAsync(ct);
         }

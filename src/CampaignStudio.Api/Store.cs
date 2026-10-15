@@ -19,9 +19,16 @@ public class Store(DbContextOptions options) : DbContext(options)
     public DbSet<InboxReceipt> InboxReceipts => Set<InboxReceipt>();
     public DbSet<SignupForm> Forms => Set<SignupForm>();
     public DbSet<SignupRequest> Signups => Set<SignupRequest>();
+    public DbSet<EngagementSignal> Engagement => Set<EngagementSignal>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Contact>().HasIndex(x => x.Email).IsUnique();
+        b.Entity<Campaign>().HasIndex(x => new { x.SenderId, x.State });
+        b.Entity<RecipientJob>().HasOne<Contact>().WithMany().HasForeignKey(x => x.ContactId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<RecipientJob>().HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<SendAttempt>().HasOne<RecipientJob>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<EngagementSignal>().HasOne<RecipientJob>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<EngagementSignal>().HasIndex(x => new { x.JobId, x.Kind, x.LinkKey, x.Bucket }).IsUnique();
         b.Entity<InboxReceipt>().HasIndex(x => new { x.InboxId, x.Uid }).IsUnique();
         b.Entity<InboxProfile>().HasIndex(x => new { x.AutoPoll, x.NextPollAt });
         b.Entity<SignupRequest>().HasIndex(x => new { x.FormId, x.Email }).IsUnique();

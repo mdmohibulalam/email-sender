@@ -24,6 +24,9 @@ public static class StudioHost
         builder.Services.AddSingleton<UnsubscribeTokens>();
         builder.Services.AddSingleton<CredentialVault>();
         builder.Services.AddSingleton<SignupTokens>();
+        builder.Services.AddSingleton<ImageAssets>();
+        builder.Services.AddSingleton<EngagementTracking>();
+        builder.Services.AddSingleton<ExternalDesigner>();
         builder.Services.AddSingleton<ISmtpTransport, SmtpTransport>();
         builder.Services.AddSingleton<IInboxReader, Pop3Reader>();
         builder.Services.AddHttpClient<JotformClient>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 2_000_000; }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -46,7 +49,7 @@ public static class StudioHost
                 ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
                 { PermitLimit = 240, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
         });
-        if (settings.StartWorker) builder.Services.AddHostedService<DispatchWorker>();
+        if (settings.StartWorker) { builder.Services.AddHostedService<DispatchWorker>(); builder.Services.AddHostedService<SignupWorker>(); builder.Services.AddHostedService<InboxWorker>(); }
         configure?.Invoke(builder.Services);
         var app = builder.Build();
         try
@@ -91,24 +94,28 @@ public static class StudioHost
             fromEmail = settings.FromEmail, fromName = settings.FromName, storage = settings.Postgres is null ? "Local SQLite" : "PostgreSQL",
             execution = "This server owns its campaign queue", sendingMode = "Capture emails until live SMTP is configured" });
         Connections.Map(api);
+        ExternalDesigner.Map(api);
+        WorkspaceWidgets.Map(api);
         Inboxes.Map(api);
         JotformImport.Map(api);
         MarketingEndpoints.Map(api);
         SignupForms.Map(app, api);
+        app.Services.GetRequiredService<ImageAssets>().Map(app, api);
+        app.Services.GetRequiredService<EngagementTracking>().Map(app, api);
         api.MapGet("/overview", async (Store db) => new
         {
             contacts = await db.Contacts.CountAsync(), eligible = await db.Contacts.CountAsync(x => !x.Suppressed),
             suppressed = await db.Contacts.CountAsync(x => x.Suppressed), campaigns = await db.Campaigns.CountAsync(),
             captured = await db.Jobs.CountAsync(x => x.State == "Captured"), accepted = await db.Jobs.CountAsync(x => x.State == "Accepted")
         });
-        api.MapGet("/contacts", async (Store db, string? search, string? list, bool? suppressed, int? page) =>
+        api.MapGet("/contacts", async (Store db, string? search, string? list, bool? suppressed, int? page, string? sort) =>
         {
             if (page is < 1 or > 1000000 || search?.Length > 250 || list?.Length > 250) return Error("Invalid page or filter length.");
             var q = db.Contacts.AsNoTracking().AsQueryable();
             if (!string.IsNullOrWhiteSpace(search)) q = q.Where(x => x.Email.Contains(search) || x.FirstName.Contains(search) || x.LastName.Contains(search));
             if (!string.IsNullOrWhiteSpace(list)) q = q.Where(x => x.ListName == list);
             if (suppressed.HasValue) q = q.Where(x => x.Suppressed == suppressed);
-            return Results.Ok(new { total = await q.CountAsync(), items = await q.OrderBy(x => x.Email).Skip(Math.Max(0, (page ?? 1) - 1) * 100).Take(100).ToListAsync() });
+            return Results.Ok(new { total = await q.CountAsync(), items = await ContactSorting.Apply(q, sort).Skip(Math.Max(0, (page ?? 1) - 1) * 100).Take(100).ToListAsync() });
         });
         api.MapGet("/lists", async (Store db) => await db.Contacts.Select(x => x.ListName).Distinct().OrderBy(x => x).ToListAsync());
         api.MapPost("/contacts", async (ContactInput input, Store db) =>
@@ -266,7 +273,7 @@ public static class StudioHost
             || i.ButtonLabel.Length > 150 || i.ButtonUrl.Length > 2000 || i.Footer.Length > 2000 || i.ListName.Length > 250) return "A campaign field exceeds its size limit.";
         if (i.Subject.Contains('\r') || i.Subject.Contains('\n')) return "The subject must be a single line.";
         if (!EmailRenderer.ValidAccent(i.Accent)) return "Choose a valid accent color.";
-        if (i.ButtonLabel.Length > 0 && !EmailRenderer.ValidUrl(i.ButtonUrl)) return "Button links must start with https:// or http://.";
+        if (string.IsNullOrWhiteSpace(i.BlocksJson) && string.IsNullOrWhiteSpace(i.SourceHtml) && i.ButtonLabel.Length > 0 && !EmailRenderer.ValidUrl(i.ButtonUrl)) return "Button links must start with https:// or http://.";
         if (i.BlocksJson is null || i.SourceHtml is null || i.AttachmentIdsJson is null || i.CalendarJson is null || i.UtmCampaign is null || i.HistoryMode is not ("All" or "Sent" or "NotSent") || i.UtmCampaign.Length > 250) return "Check advanced campaign settings.";
         ScriptTags.Validate(i.TagsJson);
         if (i.BlocksJson.Length > 0) EmailDesign.Blocks(i.BlocksJson);
@@ -277,7 +284,7 @@ public static class StudioHost
     }
     private static void Apply(Campaign c, CampaignInput i)
     {
-        c.TagsJson = i.TagsJson; c.BlocksJson = i.BlocksJson; c.SourceHtml = i.SourceHtml; c.SegmentId = i.SegmentId; c.HistoryCampaignId = i.HistoryCampaignId; c.HistoryMode = i.HistoryMode;
+        c.TrackEngagement = i.TrackEngagement; c.TagsJson = i.TagsJson; c.BlocksJson = i.BlocksJson; c.SourceHtml = i.SourceHtml; c.SegmentId = i.SegmentId; c.HistoryCampaignId = i.HistoryCampaignId; c.HistoryMode = i.HistoryMode;
         c.AttachmentIdsJson = i.AttachmentIdsJson; c.CalendarJson = i.CalendarJson; c.UtmCampaign = i.UtmCampaign;
         c.Name = i.Name.Trim(); c.Subject = i.Subject; c.Preheader = i.Preheader; c.Heading = i.Heading; c.Body = i.Body;
         c.ButtonLabel = i.ButtonLabel; c.ButtonUrl = i.ButtonUrl; c.Footer = i.Footer; c.Accent = i.Accent; c.ListName = i.ListName.Trim();

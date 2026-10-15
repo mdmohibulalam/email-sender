@@ -15,6 +15,8 @@ public sealed class SenderProfile
     public string ReturnPath { get; set; } = "";
     public int DelayMilliseconds { get; set; } = 1000;
     public int MaxRetries { get; set; } = 3;
+    public int MaxConnections { get; set; } = 1;
+    public string DeliveryMode { get; set; } = "Smtp";
     public long? VerifiedAt { get; set; }
     public long NextSendAt { get; set; }
     public string TestResult { get; set; } = "Not tested";
@@ -22,7 +24,7 @@ public sealed class SenderProfile
 }
 public sealed record SenderInput(string Name, string Host, int Port, string Username, string Password,
     string FromEmail, string FromName, string ReplyTo = "", string ReturnPath = "", int DelayMilliseconds = 1000,
-    int MaxRetries = 3, bool ClearPassword = false, int ExpectedRevision = 0);
+    int MaxRetries = 3, bool ClearPassword = false, int ExpectedRevision = 0, int MaxConnections = 1, string DeliveryMode = "Smtp");
 public sealed class SendAttempt
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -80,7 +82,7 @@ public sealed class Attachment
 public sealed record AttachmentInput(string Name, string Base64, string RecipientEmail = "");
 public sealed record CalendarEvent(string Title, string Description, string Location, DateTimeOffset Start, DateTimeOffset End);
 public sealed record EmailBlock(string Type, string Content = "", string Url = "", string Label = "", int Height = 24);
-public sealed record HtmlImportInput(string Name, string Content, string Format = "html");
+public sealed record HtmlImportInput(string Name, string Content, string Format = "html", string Base64 = "");
 public sealed record RetryInput(bool ConfirmRetry = false);
 
 public sealed class SignupForm
@@ -129,5 +131,16 @@ public sealed class InboxReceipt
     public Guid InboxId { get; set; }
     public string Uid { get; set; } = "";
     public string Action { get; set; } = "";
+    public long At { get; set; }
+}
+
+public sealed class EngagementSignal
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid JobId { get; set; }
+    public string Kind { get; set; } = "";
+    public string LinkKey { get; set; } = "";
+    public string Url { get; set; } = "";
+    public long Bucket { get; set; }
     public long At { get; set; }
 }

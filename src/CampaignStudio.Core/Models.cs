@@ -26,6 +26,7 @@ public sealed class Campaign
     public string AttachmentIdsJson { get; set; } = "[]";
     public string CalendarJson { get; set; } = "";
     public string UtmCampaign { get; set; } = "";
+    public bool TrackEngagement { get; set; }
     public string TagsJson { get; set; } = "{}";
     public int Revision { get; set; }
     public Guid? SenderId { get; set; }
@@ -77,7 +78,7 @@ public sealed record ScheduleInput(long ScheduledAt, string Mode = "Capture", bo
 public sealed record CampaignInput(string Name, string Subject, string Preheader, string Heading, string Body,
     string ButtonLabel, string ButtonUrl, string Footer, string Accent, string ListName,
     string BlocksJson = "", string SourceHtml = "", Guid? SegmentId = null, Guid? HistoryCampaignId = null,
-    string HistoryMode = "All", string AttachmentIdsJson = "[]", string CalendarJson = "", string UtmCampaign = "", int ExpectedRevision = 0, string TagsJson = "{}");
+    string HistoryMode = "All", string AttachmentIdsJson = "[]", string CalendarJson = "", string UtmCampaign = "", int ExpectedRevision = 0, string TagsJson = "{}", bool TrackEngagement = false);
 public sealed record SuppressionInput(string Reason = "Manually excluded");
 
 public static class ContactRules

@@ -8,19 +8,20 @@ public static partial class ScriptTags
     [GeneratedRegex(@"\{\{tag:([a-zA-Z][a-zA-Z0-9_]{0,49})\}\}")] private static partial Regex Pattern();
     public static Dictionary<string,string> Validate(string json)
     {
-        if (json.Length > 100000) throw new FormatException("Programmable tags exceed 100 KB.");
+        if (json is null || json.Length > 100000) throw new FormatException("Programmable tags exceed 100 KB.");
         var tags = EmailDesign.Read<Dictionary<string,string>>(json);
         if (tags.Count > 20 || tags.Any(x => !Regex.IsMatch(x.Key, @"^[a-zA-Z][a-zA-Z0-9_]{0,49}$") || x.Value is null || x.Value.Length > 5000)) throw new FormatException("Use up to 20 named JavaScript expressions, each under 5 KB.");
         return tags;
     }
-    public static string Resolve(string json, string text, string first, string last, string email)
+    public static string Resolve(string json, string text, string first, string last, string email, Dictionary<string,string>? cache = null)
     {
         if (!text.Contains("{{tag:", StringComparison.Ordinal)) return text;
-        var tags = Validate(json); var values = new Dictionary<string,string>();
+        Dictionary<string,string>? tags = null; var values = cache ?? new Dictionary<string,string>();
         return Pattern().Replace(text, match =>
         {
             var name = match.Groups[1].Value;
             if (values.TryGetValue(name, out var cached)) return cached;
+            tags ??= Validate(json);
             if (!tags.TryGetValue(name, out var expression)) throw new FormatException("Missing programmable tag: " + name);
             try
             {

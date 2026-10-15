@@ -4,7 +4,7 @@ namespace CampaignStudio.Api;
 
 public static class Connections
 {
-    public static object Public(SenderProfile s) => new { s.Id, s.Name, s.Host, s.Port, s.Username, s.FromEmail, s.FromName, s.ReplyTo, s.ReturnPath, s.DelayMilliseconds, s.MaxRetries, s.VerifiedAt, s.TestResult, s.Revision, hasPassword = s.PasswordCipher.Length > 0 };
+    public static object Public(SenderProfile s) => new { s.Id, s.Name, s.Host, s.Port, s.Username, s.FromEmail, s.FromName, s.ReplyTo, s.ReturnPath, s.DelayMilliseconds, s.MaxRetries, s.MaxConnections, s.DeliveryMode, s.VerifiedAt, s.TestResult, s.Revision, hasPassword = s.PasswordCipher.Length > 0 };
     public static void Map(RouteGroupBuilder api)
     {
         api.MapGet("/connections", async (Store db) => (await db.Senders.OrderBy(x => x.Name).ToListAsync()).Select(Public));
@@ -43,10 +43,10 @@ public static class Connections
     }
     private static void Apply(SenderProfile s, SenderInput i, CredentialVault vault)
     {
-        var fields = new[] { i.Name, i.Host, i.Username, i.Password, i.FromEmail, i.FromName, i.ReplyTo, i.ReturnPath };
-        if (fields.Any(x => x is null || x.Contains('\r') || x.Contains('\n')) || i.Name.Length is < 1 or > 250 || i.Host.Length is < 1 or > 253 || Uri.CheckHostName(i.Host) == UriHostNameType.Unknown || i.Username.Length > 500 || i.Password.Length > 2000 || i.FromName.Length > 250 || !ContactRules.ValidEmail(i.FromEmail) || i.ReplyTo.Length > 0 && !ContactRules.ValidEmail(i.ReplyTo) || i.ReturnPath.Length > 0 && !ContactRules.ValidEmail(i.ReturnPath) || i.Port is < 1 or > 65535 || i.DelayMilliseconds is < 1000 or > 600000 || i.MaxRetries is < 0 or > 5) throw new FormatException("Check sender, hostname, port, pacing, and retry limits.");
+        var fields = new[] { i.DeliveryMode, i.Name, i.Host, i.Username, i.Password, i.FromEmail, i.FromName, i.ReplyTo, i.ReturnPath };
+        if (fields.Any(x => x is null || x.Contains('\r') || x.Contains('\n')) || i.Name.Length is < 1 or > 250 || i.Host.Length > 253 || i.DeliveryMode is not ("Smtp" or "Direct") || i.DeliveryMode == "Smtp" && (i.Host.Length == 0 || Uri.CheckHostName(i.Host) == UriHostNameType.Unknown) || i.Username.Length > 500 || i.Password.Length > 2000 || i.FromName.Length > 250 || !ContactRules.ValidEmail(i.FromEmail) || i.ReplyTo.Length > 0 && !ContactRules.ValidEmail(i.ReplyTo) || i.ReturnPath.Length > 0 && !ContactRules.ValidEmail(i.ReturnPath) || i.Port is < 1 or > 65535 || i.DelayMilliseconds is < 10 or > 600000 || i.MaxRetries is < 0 or > 5 || i.MaxConnections is < 1 or > 100) throw new FormatException("Check sender, hostname, port, pacing, and retry limits.");
         s.Name = i.Name.Trim(); s.Host = i.Host; s.Port = i.Port; s.Username = i.Username; s.FromEmail = ContactRules.Normalize(i.FromEmail); s.FromName = i.FromName; s.ReplyTo = i.ReplyTo; s.ReturnPath = i.ReturnPath;
-        s.DelayMilliseconds = i.DelayMilliseconds; s.MaxRetries = i.MaxRetries; s.VerifiedAt = null; s.TestResult = "Changed; test before sending.";
+        s.MaxConnections = i.MaxConnections; s.DeliveryMode = i.DeliveryMode; s.DelayMilliseconds = i.DelayMilliseconds; s.MaxRetries = i.MaxRetries; s.VerifiedAt = null; s.TestResult = "Changed; test before sending.";
         if (i.Password.Length > 0) s.PasswordCipher = vault.Seal(i.Password); else if (i.ClearPassword) s.PasswordCipher = "";
     }
 }

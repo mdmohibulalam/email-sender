@@ -80,13 +80,7 @@ public static class MarketingEndpoints
             await File.WriteAllBytesAsync(path + ".tmp", bytes); File.Move(path + ".tmp", path);
             try { db.Add(asset); await db.SaveChangesAsync(); } catch { File.Delete(path); throw; } return Results.Ok(asset);
         });
-        api.MapPost("/messages/import", async (HtmlImportInput i) =>
-        {
-            if (i.Name is null || i.Name.Length > 250 || i.Content is null || i.Content.Length > 2_000_000 || i.Format is not ("html" or "eml")) throw new FormatException("Import an HTML or EML file under 2 MB.");
-            string html = i.Content, subject = "";
-            if (i.Format == "eml") { using var stream = new MemoryStream(Encoding.UTF8.GetBytes(i.Content)); var message = await MimeMessage.LoadAsync(stream); html = message.HtmlBody ?? "<p>" + System.Net.WebUtility.HtmlEncode(message.TextBody ?? "") + "</p>"; subject = message.Subject ?? ""; }
-            return Results.Ok(new { name = i.Name, subject, sourceHtml = html, safePreview = EmailDesign.CleanHtml(html) });
-        });
+        api.MapPost("/messages/import", async (HtmlImportInput i, Store db, StudioSettings settings, ImageAssets images, CancellationToken ct) => Results.Ok(await MessageImport.Import(i, db, settings, images, ct)));
         api.MapPost("/links/check", async (HtmlImportInput i, CancellationToken ct) =>
         { if (i.Content is null || i.Content.Length > 500000) throw new FormatException("HTML exceeds 500 KB."); return Results.Ok(await PublicLinkChecker.Check(i.Content, ct)); });
         api.MapPost("/maintenance/backup", async (Store db, StudioSettings settings) =>
