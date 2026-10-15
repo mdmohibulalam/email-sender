@@ -30,18 +30,23 @@ $env:Studio__EnableLiveSending = 'false'
 Remove-Item Env:Studio__Postgres -ErrorAction SilentlyContinue
 $env:Studio__PublicBaseUrl = ''
 $env:Logging__LogLevel__Default = 'Warning'
-# Let Windows allocate an unused loopback port. Never bind this preview to the network.
-$listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
-$listener.Start()
-$port = $listener.LocalEndpoint.Port
-$listener.Stop()
-$url = "http://127.0.0.1:$port"
-$process = Start-Process -FilePath $binary -ArgumentList '--urls', $url -WorkingDirectory $PSScriptRoot -PassThru -NoNewWindow
+$readyFile = Join-Path $dataDir ("launch-" + [Guid]::NewGuid().ToString('N') + '.json')
+$env:Studio__ReadyFile = $readyFile
+$process = Start-Process -FilePath $binary -ArgumentList '--urls', 'http://127.0.0.1:0' -WorkingDirectory $PSScriptRoot -PassThru -NoNewWindow
 try {
     $ready = $false
     for ($i = 0; $i -lt 80; $i++) {
         if ($process.HasExited) { throw 'The workspace server exited. Check the error above.' }
-        try { $health = Invoke-RestMethod "$url/health" -TimeoutSec 1; if ($health.status -eq 'ok') { $ready = $true; break } } catch {}
+        try {
+            if (Test-Path $readyFile) {
+                $launch = Get-Content -Raw $readyFile | ConvertFrom-Json
+                if ($launch.pid -eq $process.Id -and $launch.version -eq '0.2.0') {
+                    $url = $launch.url
+                    $health = Invoke-RestMethod "$url/health" -TimeoutSec 1
+                    if ($health.version -eq '0.2.0') { $ready = $true; break }
+                }
+            }
+        } catch {}
         Start-Sleep -Milliseconds 250
     }
     if (-not $ready) { throw 'The workspace server did not start in time.' }
@@ -53,6 +58,8 @@ try {
     $process.WaitForExit()
 } finally {
     if (-not $process.HasExited) { Stop-Process -Id $process.Id }
+    Remove-Item $readyFile -ErrorAction SilentlyContinue
+    Remove-Item Env:Studio__ReadyFile -ErrorAction SilentlyContinue
     Remove-Item Env:Studio__ApiKey -ErrorAction SilentlyContinue
     Remove-Item Env:Studio__TokenSecret -ErrorAction SilentlyContinue
 }

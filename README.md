@@ -2,7 +2,7 @@
 
 A Windows-first email campaign application with a C#/.NET backend and an optional hosted cloud workspace. This is the first implementation milestone, not a completed SendBlaster replacement.
 
-The repository now includes the 0.2 implementation built on the recovered 0.1 baseline. New features include encrypted SMTP connections and tests, bounded safe retries, recorded attempts, database upgrades, block/source editing, HTML/EML import, attachments, calendar events, segments, list moves, exclusions, reusable content, and maintenance tools. See `docs/VALIDATION-V02.md` for current verification. The separately distributed 0.1 portable ZIP does not include these changes.
+The repository now includes the 0.2 implementation built on the recovered 0.1 baseline. New features include encrypted SMTP connections and tests, bounded safe retries, recorded attempts, database upgrades, signup forms, POP3 processing, JotForm import, programmable JavaScript tags, block/source editing, HTML/EML import, attachments, calendar events, segments, list moves, exclusions, reusable content, and maintenance tools. See `docs/VALIDATION-V02.md` for current verification. The separately distributed 0.1 portable ZIP does not include these changes.
 
 ## Try the portable Windows preview
 
@@ -28,7 +28,7 @@ Your local portable data is saved under `%LOCALAPPDATA%\CampaignStudio-Portable`
 
 ## Current boundaries
 
-This remains a single-workspace preview. Real-provider tests, inbox-client rendering, Windows runtime verification, native installer signing, and cloud deployment remain release gates. There is no customer account/tenant system, licensing, billing, automatic desktop/cloud synchronization, open tracking, POP3 processing, signup forms, JotForm connector, direct-to-MX sending, 100-connection sending, VBScript/JavaScript tag engine, native MailStyler launcher, or image crop/filter tool in this checkpoint. UTM parameters measure website traffic through your analytics; SMTP acceptance does not prove inbox delivery.
+This remains a single-workspace preview. Real-provider tests, inbox-client rendering, Windows runtime verification, native installer signing, and cloud deployment remain release gates. There is no customer account/tenant system, licensing, billing, automatic desktop/cloud synchronization, open tracking, direct-to-MX sending, 100-connection sending, VBScript tags, native MailStyler launcher, or image crop/filter tool in this checkpoint. UTM parameters measure website traffic through your analytics; SMTP acceptance does not prove inbox delivery.
 
 HTML source is retained in drafts; outgoing HTML and previews are sanitized, so active markup is removed. Each contact has one list; list merges move contacts and preserve suppression. Retry never automatically resends uncertain SMTP jobs. Back up attachments/captures and the encryption/unsubscribe secret with the database. PostgreSQL production upgrades require a verified server backup.
 
@@ -52,7 +52,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Run-Dev.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Windows.ps1
 ```
 
-`Run-Dev.ps1` copies the temporary API key to your clipboard. Open http://127.0.0.1:5088 and paste it. This development script creates a new unsubscribe secret each run; use the portable launcher or a stable configured secret for persistent hosted links.
+`Run-Dev.ps1` copies the temporary API key to your clipboard. Open http://127.0.0.1:5088 and paste it. The development unsubscribe/encryption secret is retained using Windows DPAPI. Keep it with your workspace backups.
 
 On Linux/macOS, supply `Studio__ApiKey`, `Studio__TokenSecret`, and `Studio__DataDirectory`, then run:
 

@@ -93,7 +93,7 @@ public static class MarketingEndpoints
         {
             if (!db.Database.IsSqlite()) throw new FormatException("Use PostgreSQL's server backup tools for this workspace.");
             string folder = Path.Combine(settings.DataDirectory, "backups"); Directory.CreateDirectory(folder); string name = "workspace-" + Guid.NewGuid().ToString("N") + ".db", path = Path.Combine(folder, name);
-            await db.Database.OpenConnectionAsync(); using var target = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = path }.ToString()); target.Open(); ((Microsoft.Data.Sqlite.SqliteConnection)db.Database.GetDbConnection()).BackupDatabase(target);
+            await db.Database.OpenConnectionAsync(); using var target = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()); target.Open(); ((Microsoft.Data.Sqlite.SqliteConnection)db.Database.GetDbConnection()).BackupDatabase(target);
             return Results.Ok(new { name, note = "Database backup created on this server. Back up attachments, captures, and the unsubscribe/encryption secret separately." });
         });
         api.MapPost("/maintenance/optimize", async (Store db) =>

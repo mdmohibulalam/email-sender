@@ -82,3 +82,52 @@ public sealed record CalendarEvent(string Title, string Description, string Loca
 public sealed record EmailBlock(string Type, string Content = "", string Url = "", string Label = "", int Height = 24);
 public sealed record HtmlImportInput(string Name, string Content, string Format = "html");
 public sealed record RetryInput(bool ConfirmRetry = false);
+
+public sealed class SignupForm
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string ListName { get; set; } = "Main audience";
+    public Guid SenderId { get; set; }
+    public bool Enabled { get; set; }
+}
+public sealed record SignupFormInput(string Name, string ListName, Guid SenderId, bool Enabled = true);
+public sealed class SignupRequest
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid FormId { get; set; }
+    public string Email { get; set; } = "";
+    public string FirstName { get; set; } = "";
+    public string ListName { get; set; } = "";
+    public string State { get; set; } = "Pending";
+    public long CreatedAt { get; set; }
+    public long ExpiresAt { get; set; }
+    public long NextAttemptAt { get; set; }
+    public int Attempts { get; set; }
+    public string Detail { get; set; } = "";
+}
+
+public sealed class InboxProfile
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Host { get; set; } = "";
+    public int Port { get; set; } = 995;
+    public string Username { get; set; } = "";
+    [JsonIgnore] public string PasswordCipher { get; set; } = "";
+    public Guid? SignupFormId { get; set; }
+    public bool AutoPoll { get; set; }
+    public long? VerifiedAt { get; set; }
+    public long NextPollAt { get; set; }
+    public string Detail { get; set; } = "Not tested";
+    public int Revision { get; set; }
+}
+public sealed record InboxInput(string Name,string Host,int Port,string Username,string Password,Guid? SignupFormId=null,bool AutoPoll=false,int ExpectedRevision=0);
+public sealed class InboxReceipt
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid InboxId { get; set; }
+    public string Uid { get; set; } = "";
+    public string Action { get; set; } = "";
+    public long At { get; set; }
+}

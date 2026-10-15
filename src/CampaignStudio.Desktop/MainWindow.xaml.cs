@@ -16,15 +16,17 @@ public sealed partial class MainWindow : Window
     private WebApplication? server;
     private string origin = "";
     private string key = "";
+    private bool initialized;
     public MainWindow()
     {
-        InitializeComponent(); Title = "Campaign Studio — Preview 0.1";
+        InitializeComponent(); Title = "Campaign Studio — Preview 0.2";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1360, 920));
         Workspace.Loaded += async (_, _) => await InitializeWorkspace();
         Closed += async (_, _) => { if (server is not null) { await server.StopAsync(); await server.DisposeAsync(); } };
     }
     private async Task InitializeWorkspace()
     {
+        if (initialized) return; initialized = true;
         try
         {
             string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CampaignStudio");
@@ -65,15 +67,16 @@ public sealed partial class MainWindow : Window
                 // Preview frames have no scripts or native bridges. Only the trusted workspace can navigate the top-level view.
                 if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri) || uri.GetLeftPart(UriPartial.Authority) != origin) args.Cancel = true;
             };
-            Workspace.CoreWebView2.NavigationCompleted += async (_, args) =>
+            await Workspace.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("if(window.top===window && location.origin===" + JsonSerializer.Serialize(origin) + "){window.__studioDesktopKey=" + JsonSerializer.Serialize(key) + ";}");
+            Workspace.CoreWebView2.NavigationCompleted += (_, args) =>
             {
                 if (!args.IsSuccess) { Status.Text = "Could not open the workspace. Check the cloud connection."; return; }
-                await Workspace.ExecuteScriptAsync("window.studioConnect(" + JsonSerializer.Serialize(key) + ");");
                 Status.Visibility = Visibility.Collapsed;
             };
             Workspace.CoreWebView2.DownloadStarting += (_, args) =>
             {
                 // Keep exports outside the application folder and prevent overwriting without a prompt.
+                Directory.CreateDirectory(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"));
                 string target = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", Path.GetFileName(args.ResultFilePath));
                 if (File.Exists(target)) target = Path.Combine(Path.GetDirectoryName(target)!, Path.GetFileNameWithoutExtension(target) + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + Path.GetExtension(target));
                 args.ResultFilePath = target;

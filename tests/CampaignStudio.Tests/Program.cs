@@ -129,6 +129,8 @@ try
     Check(restartedCampaigns.EnumerateArray().Any(x => x.GetProperty("id").GetGuid() == noAudience && x.GetProperty("state").GetString() == "Draft"), "Drafts survive a server restart");
     Check((await Json(await client.GetAsync($"/api/campaigns/{copy}/report"))).GetProperty("jobs")[0].GetProperty("state").GetString() == "Unknown", "Interrupted-job review state survives a server restart");
     await ExtendedChecks.Run(Check);
+    await using (var tls = new TlsSandbox()) await tls.Run(Check);
+    if (Environment.GetEnvironmentVariable("STUDIO_TEST_POSTGRES") is string postgres) await PostgresChecks.Run(postgres, Check);
     Console.WriteLine($"\n{passed} checks passed. No real emails sent.");
 }
 finally

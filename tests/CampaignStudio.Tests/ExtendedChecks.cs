@@ -19,10 +19,17 @@ public static class ExtendedChecks
     {
         public SmtpOutcome Outcome = new("Accepted", "Sandbox accepted");
         public int Sends;
+        public MimeMessage? LastMessage;
         public Func<Task>? BeforeGate;
         public Task<SmtpOutcome> Test(SenderProfile s, string p, CancellationToken ct) => Task.FromResult(new SmtpOutcome("Verified", "Sandbox credentials verified"));
         public async Task<SmtpOutcome> Send(SenderProfile s, string p, MimeMessage message, Func<Task<bool>> gate, CancellationToken ct)
-        { if (BeforeGate is not null) await BeforeGate(); if (!await gate()) return new("Stopped", "Suppressed after authentication"); Sends++; return Outcome; }
+        { if (BeforeGate is not null) await BeforeGate(); if (!await gate()) return new("Stopped", "Suppressed after authentication"); Sends++; LastMessage=message; return Outcome; }
+    }
+    public sealed class InboxReader : IInboxReader
+    {
+        public List<InboxMessage> Messages = [];
+        public Task<bool> Test(InboxProfile p,string password,CancellationToken ct) => Task.FromResult(true);
+        public Task<List<InboxMessage>> Read(InboxProfile p,string password,string[] processed,CancellationToken ct) => Task.FromResult(Messages.Where(x=>!processed.Contains(x.Uid)).ToList());
     }
     public static async Task Run(Action<bool,string> check)
     {
@@ -37,9 +44,11 @@ public static class ExtendedChecks
         var calendar = EmailDesign.Calendar(new("Meeting\nBEGIN:VEVENT", new string('অ',100), "Dhaka", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1)), Guid.NewGuid());
         check(calendar.Contains("SUMMARY:Meeting\\nBEGIN:VEVENT") && calendar.Split("\r\n").All(x => System.Text.Encoding.UTF8.GetByteCount(x)<=75), "Calendar event escapes injected lines and folds UTF-8 correctly");
         check(!PublicLinkChecker.PublicAddress(IPAddress.Parse("127.0.0.1")) && !PublicLinkChecker.PublicAddress(IPAddress.Parse("::ffff:10.0.0.1")) && PublicLinkChecker.PublicAddress(IPAddress.Parse("8.8.8.8")), "Link checker blocks loopback and mapped private addresses");
+        check(ScriptTags.Resolve("{\"greeting\":\"contact.firstName.toUpperCase()\"}","{{tag:greeting}}","Ada","","a@example.com")=="ADA","Programmable JavaScript tags evaluate with contact-only data");
+        try { ScriptTags.Resolve("{\"loop\":\"(()=>{while(true){} })()\"}","{{tag:loop}}","","","");throw new Exception("Unbounded tag accepted"); } catch(FormatException){check(true,"Programmable tags stop at execution limits");}
         await LegacyUpgrade(check);
-        var clock = new Clock(); var transport = new Transport();
-        var host = StudioHost.Build(["--urls","http://127.0.0.1:0","--Logging:LogLevel:Default","Warning"], settings, configure: services => { services.AddSingleton<TimeProvider>(clock); services.AddSingleton<ISmtpTransport>(transport); });
+        var clock = new Clock(); var transport = new Transport(); var inboxReader = new InboxReader();
+        var host = StudioHost.Build(["--urls","http://127.0.0.1:0","--Logging:LogLevel:Default","Warning"], settings, configure: services => { services.AddSingleton<TimeProvider>(clock); services.AddSingleton<ISmtpTransport>(transport); services.AddSingleton<IInboxReader>(inboxReader); });
         await host.StartAsync();
         using var client = new HttpClient { BaseAddress = new Uri(host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single()) };
         client.DefaultRequestHeaders.Authorization = new("Bearer",settings.ApiKey);
@@ -81,6 +90,23 @@ public static class ExtendedChecks
             var list=await Read(await client.GetAsync("/api/contacts?list=Merged"));check(list.GetProperty("items").EnumerateArray().Any(x=>x.GetProperty("suppressed").GetBoolean()),"List merge preserves unsubscribed status");
             await Post("/library",new LibraryInput("Signature","Snippet","Business","Example Inc"));check((await Read(await client.GetAsync("/api/library?kind=Snippet"))).GetArrayLength()==1,"Reusable snippets persist in the content library");
             check((await Post("/maintenance/backup",new{})).GetProperty("name").GetString()!.EndsWith(".db"),"Online SQLite backup creates a consistent server-side database snapshot");
+            var signupForm=await Post("/forms",new SignupFormInput("Test newsletter","Confirmed list",sender));Guid formId=signupForm.GetProperty("id").GetGuid();
+            using(var visitor=new HttpClient{BaseAddress=client.BaseAddress})
+            {
+                await visitor.PostAsync("/f/"+formId,new FormUrlEncodedContent(new Dictionary<string,string>{{"email","visitor@example.com"},{"firstName","Visitor"},{"consent","on"}}));
+                using(var scope=host.Services.CreateScope())check(!await scope.ServiceProvider.GetRequiredService<Store>().Contacts.AnyAsync(x=>x.Email=="visitor@example.com"),"Signup form never subscribes an unconfirmed visitor");
+                clock.Advance(3);await Tick();string confirmation=System.Text.RegularExpressions.Regex.Match(transport.LastMessage!.TextBody??"",@"https://studio\.example/subscribe/confirm/[^\s]+").Value;string confirmPath=new Uri(confirmation).PathAndQuery;
+                await visitor.GetAsync(confirmPath);using(var scope=host.Services.CreateScope())check(!await scope.ServiceProvider.GetRequiredService<Store>().Contacts.AnyAsync(x=>x.Email=="visitor@example.com"),"Email scanners opening confirmation links do not subscribe contacts");
+                check((await visitor.PostAsync(confirmPath,null)).IsSuccessStatusCode,"Explicit confirmation accepts a signed unexpired signup token");
+                using(var scope=host.Services.CreateScope())check(await scope.ServiceProvider.GetRequiredService<Store>().Contacts.AnyAsync(x=>x.Email=="visitor@example.com"&&x.ListName=="Confirmed list"&&!x.Suppressed),"Confirmed signup creates an eligible contact in the selected list");
+                await visitor.PostAsync(confirmPath,null);using(var scope=host.Services.CreateScope())check(await scope.ServiceProvider.GetRequiredService<Store>().Contacts.CountAsync(x=>x.Email=="visitor@example.com")==1,"Repeated signup confirmations are idempotent");
+            }
+            var inbox=await Post("/inboxes",new InboxInput("Subscription mailbox","localhost",995,"sandbox","mailbox-secret",formId));Guid inboxId=inbox.GetProperty("id").GetGuid();check(inbox.GetProperty("hasPassword").GetBoolean()&&!inbox.ToString().Contains("mailbox-secret"),"Mailbox API hides encrypted POP3 credentials");await Post("/inboxes/"+inboxId+"/test",new{});
+            var unsubscribeMessage=new MimeMessage{Subject="Unsubscribe",Body=new TextPart("plain"){Text="Please remove me"}};unsubscribeMessage.From.Add(MailboxAddress.Parse("visitor@example.com"));inboxReader.Messages.Add(new("uid-1",unsubscribeMessage));
+            var polled=await Post("/inboxes/"+inboxId+"/poll",new{});check(polled.GetProperty("processed").GetInt32()==1,"Mailbox commands are processed with durable UID receipts");using(var scope=host.Services.CreateScope())check(await scope.ServiceProvider.GetRequiredService<Store>().Contacts.AnyAsync(x=>x.Email=="visitor@example.com"&&x.Suppressed),"Mailbox unsubscribe suppresses the known contact");
+            clock.Advance(61);polled=await Post("/inboxes/"+inboxId+"/poll",new{});check(polled.GetProperty("processed").GetInt32()==0,"Polling the same mailbox UID cannot repeat an action");
+            var subscribeMessage=new MimeMessage{Subject="Subscribe",Body=new TextPart("plain"){Text="Join"}};subscribeMessage.From.Add(MailboxAddress.Parse("mailbox-join@example.com"));inboxReader.Messages.Add(new("uid-2",subscribeMessage));clock.Advance(61);await Post("/inboxes/"+inboxId+"/poll",new{});using(var scope=host.Services.CreateScope()){var db=scope.ServiceProvider.GetRequiredService<Store>();check(await db.Signups.AnyAsync(x=>x.Email=="mailbox-join@example.com"&&x.State=="Pending")&&!await db.Contacts.AnyAsync(x=>x.Email=="mailbox-join@example.com"),"Mailbox Subscribe queues confirmation instead of bypassing double opt-in");}
+            using(var document=JsonDocument.Parse("[{\"answers\":{\"1\":{\"answer\":\"FORM@Example.com\"},\"2\":{\"answer\":{\"first\":\"Form\"}},\"3\":{\"answer\":\"Unsubscribe\"}}}]")){var rows=JotformClient.Parse(document.RootElement,new JotformInput(new string('a',32),"123456",EmailField:"1",FirstNameField:"2",OptOutField:"3"));check(rows.Count==1&&rows[0].Email=="form@example.com"&&rows[0].FirstName=="Form"&&rows[0].Unsubscribe,"JotForm mapping normalizes email, name objects, and cancellation answers");}
             try{using var other=StudioHost.Build([],settings);throw new Exception("Second process acquired workspace");}catch(IOException){check(true,"Workspace lease prevents duplicate local server ownership");}
         }
         finally {await host.StopAsync();await host.DisposeAsync();Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();Directory.Delete(dir,true);}

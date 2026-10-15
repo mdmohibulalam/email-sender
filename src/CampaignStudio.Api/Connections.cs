@@ -28,7 +28,7 @@ public static class Connections
             return count == 0 ? Results.Conflict(new { error = "Connection changed during the test. Test again." }) : Results.Ok(new { verified = verified.HasValue, detail = result.Detail });
         });
         api.MapGet("/jobs/{id:guid}/attempts", async (Guid id, Store db) => await db.Attempts.Where(x => x.JobId == id).OrderBy(x => x.Number).ToListAsync());
-        api.MapPost("/campaigns/{id:guid}/retry-failed", async (Guid id, RetryInput input, Store db, StudioSettings settings) =>
+        api.MapPost("/campaigns/{id:guid}/retry-failed", async (Guid id, RetryInput input, Store db, StudioSettings settings, TimeProvider clock) =>
         {
             if (!input.ConfirmRetry) throw new FormatException("Explicitly confirm retrying known failures.");
             await using var tx = await db.Database.BeginTransactionAsync();
@@ -38,7 +38,7 @@ public static class Connections
             if (campaign.Mode == "Smtp" && (!settings.PublicLinksReady || !settings.EnableLiveSending || !await db.Senders.AnyAsync(x => x.Id == campaign.SenderId && x.VerifiedAt != null))) throw new FormatException("Retest the sender and enable live sending first.");
             int count = await db.Jobs.Where(x => x.CampaignId == id && x.State == "Failed" && db.Contacts.Any(c => c.Id == x.ContactId && !c.Suppressed)).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Pending").SetProperty(x => x.RetryCount, 0).SetProperty(x => x.NextAttemptAt, (long?)null));
             if (count == 0) throw new FormatException("There are no eligible known failures. Accepted and Unknown jobs are never retried here.");
-            campaign.State = "Scheduled"; campaign.ScheduledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(); campaign.Issue = ""; await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(new { retried = count });
+            campaign.State = "Scheduled"; campaign.ScheduledAt = clock.GetUtcNow().ToUnixTimeSeconds(); campaign.Issue = ""; await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(new { retried = count });
         });
     }
     private static void Apply(SenderProfile s, SenderInput i, CredentialVault vault)

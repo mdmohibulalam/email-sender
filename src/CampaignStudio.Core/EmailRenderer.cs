@@ -14,14 +14,15 @@ public static partial class EmailRenderer
     public static bool ValidAccent(string value) => ColorPattern().IsMatch(value);
     public static string Html(Campaign c, string first = "Alex", string last = "", string email = "alex@example.com", string unsubscribe = "")
     {
-        string E(string text) => WebUtility.HtmlEncode(Merge(text, first, last, email));
+        string E(string text) => WebUtility.HtmlEncode(Merge(ScriptTags.Resolve(c.TagsJson, text, first, last, email), first, last, email));
         string color = ValidAccent(c.Accent) ? c.Accent : "#176b56";
         string link = ValidUrl(c.ButtonUrl) ? WebUtility.HtmlEncode(c.ButtonUrl) : "https://example.com";
         var button = string.IsNullOrWhiteSpace(c.ButtonLabel) ? "" : $"<p style='margin:28px 0'><a href='{link}' style='display:inline-block;padding:14px 22px;border-radius:6px;background:{color};color:white;text-decoration:none;font-weight:bold'>{E(c.ButtonLabel)}</a></p>";
         var unsub = unsubscribe.Length == 0 ? "<span>Unsubscribe link is added when scheduled.</span>" : $"<a href='{WebUtility.HtmlEncode(unsubscribe)}' style='color:#65716c'>Unsubscribe</a>";
         if (!string.IsNullOrWhiteSpace(c.SourceHtml))
         {
-            string rendered = Merge(c.SourceHtml, WebUtility.HtmlEncode(first), WebUtility.HtmlEncode(last), WebUtility.HtmlEncode(email));
+            string sourceWithTags = ScriptTags.Resolve(c.TagsJson, c.SourceHtml, WebUtility.HtmlEncode(first), WebUtility.HtmlEncode(last), WebUtility.HtmlEncode(email));
+            string rendered = Merge(sourceWithTags, WebUtility.HtmlEncode(first), WebUtility.HtmlEncode(last), WebUtility.HtmlEncode(email));
             return EmailDesign.FinishHtml(c, EmailDesign.CleanHtml(rendered) + "<p>" + E(c.Footer) + "<br>" + unsub + "</p>");
         }
         string content = string.IsNullOrWhiteSpace(c.BlocksJson)

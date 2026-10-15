@@ -23,7 +23,10 @@ public static class StudioHost
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton<UnsubscribeTokens>();
         builder.Services.AddSingleton<CredentialVault>();
+        builder.Services.AddSingleton<SignupTokens>();
         builder.Services.AddSingleton<ISmtpTransport, SmtpTransport>();
+        builder.Services.AddSingleton<IInboxReader, Pop3Reader>();
+        builder.Services.AddHttpClient<JotformClient>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 2_000_000; }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<WorkspaceLease>();
         if (!string.IsNullOrWhiteSpace(settings.Postgres))
@@ -88,7 +91,10 @@ public static class StudioHost
             fromEmail = settings.FromEmail, fromName = settings.FromName, storage = settings.Postgres is null ? "Local SQLite" : "PostgreSQL",
             execution = "This server owns its campaign queue", sendingMode = "Capture emails until live SMTP is configured" });
         Connections.Map(api);
+        Inboxes.Map(api);
+        JotformImport.Map(api);
         MarketingEndpoints.Map(api);
+        SignupForms.Map(app, api);
         api.MapGet("/overview", async (Store db) => new
         {
             contacts = await db.Contacts.CountAsync(), eligible = await db.Contacts.CountAsync(x => !x.Suppressed),
@@ -184,7 +190,7 @@ public static class StudioHost
         { var c = await db.Campaigns.FindAsync(id); return c is null ? Results.NotFound() : Results.Content(EmailRenderer.Html(c), "text/html"); });
         api.MapGet("/campaigns/{id:guid}/html", async (Guid id, Store db) =>
         { var c = await db.Campaigns.FindAsync(id); return c is null ? Results.NotFound() : Results.File(Encoding.UTF8.GetBytes(EmailRenderer.Html(c)), "text/html", "email.html"); });
-        api.MapPost("/campaigns/{id:guid}/schedule", async (Guid id, ScheduleInput input, Store db) =>
+        api.MapPost("/campaigns/{id:guid}/schedule", async (Guid id, ScheduleInput input, Store db, TimeProvider clock) =>
         {
             if (input.Mode is not ("Capture" or "Smtp")) return Error("Choose Capture or Smtp.");
             SenderProfile? sender = null;
@@ -193,7 +199,7 @@ public static class StudioHost
                 sender = input.SenderId.HasValue ? await db.Senders.FindAsync(input.SenderId.Value) : null;
                 if (!settings.EnableLiveSending || !settings.PublicLinksReady || !input.ConfirmLiveSend || sender?.VerifiedAt is null) return Error("Select a tested SMTP connection, configure HTTPS links, enable live sending, and confirm sending.");
             }
-            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var now = clock.GetUtcNow().ToUnixTimeSeconds();
             if (input.ScheduledAt < now - 60 || input.ScheduledAt > now + 366 * 86400L) return Error("Choose a time between now and one year from now.");
             await using var tx = await db.Database.BeginTransactionAsync();
             var locked = await db.Campaigns.Where(x => x.Id == id && x.State == "Draft").ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Preparing"));
@@ -262,6 +268,7 @@ public static class StudioHost
         if (!EmailRenderer.ValidAccent(i.Accent)) return "Choose a valid accent color.";
         if (i.ButtonLabel.Length > 0 && !EmailRenderer.ValidUrl(i.ButtonUrl)) return "Button links must start with https:// or http://.";
         if (i.BlocksJson is null || i.SourceHtml is null || i.AttachmentIdsJson is null || i.CalendarJson is null || i.UtmCampaign is null || i.HistoryMode is not ("All" or "Sent" or "NotSent") || i.UtmCampaign.Length > 250) return "Check advanced campaign settings.";
+        ScriptTags.Validate(i.TagsJson);
         if (i.BlocksJson.Length > 0) EmailDesign.Blocks(i.BlocksJson);
         if (i.SourceHtml.Length > 0) EmailDesign.CleanHtml(i.SourceHtml);
         if (i.AttachmentIdsJson.Length > 5000 || EmailDesign.Read<Guid[]>(i.AttachmentIdsJson).Length > 20) return "Attach at most 20 files.";
@@ -270,7 +277,7 @@ public static class StudioHost
     }
     private static void Apply(Campaign c, CampaignInput i)
     {
-        c.BlocksJson = i.BlocksJson; c.SourceHtml = i.SourceHtml; c.SegmentId = i.SegmentId; c.HistoryCampaignId = i.HistoryCampaignId; c.HistoryMode = i.HistoryMode;
+        c.TagsJson = i.TagsJson; c.BlocksJson = i.BlocksJson; c.SourceHtml = i.SourceHtml; c.SegmentId = i.SegmentId; c.HistoryCampaignId = i.HistoryCampaignId; c.HistoryMode = i.HistoryMode;
         c.AttachmentIdsJson = i.AttachmentIdsJson; c.CalendarJson = i.CalendarJson; c.UtmCampaign = i.UtmCampaign;
         c.Name = i.Name.Trim(); c.Subject = i.Subject; c.Preheader = i.Preheader; c.Heading = i.Heading; c.Body = i.Body;
         c.ButtonLabel = i.ButtonLabel; c.ButtonUrl = i.ButtonUrl; c.Footer = i.Footer; c.Accent = i.Accent; c.ListName = i.ListName.Trim();

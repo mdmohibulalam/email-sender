@@ -15,9 +15,17 @@ public class Store(DbContextOptions options) : DbContext(options)
     public DbSet<ConsentEvent> ConsentEvents => Set<ConsentEvent>();
     public DbSet<LibraryItem> Library => Set<LibraryItem>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<InboxProfile> Inboxes => Set<InboxProfile>();
+    public DbSet<InboxReceipt> InboxReceipts => Set<InboxReceipt>();
+    public DbSet<SignupForm> Forms => Set<SignupForm>();
+    public DbSet<SignupRequest> Signups => Set<SignupRequest>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Contact>().HasIndex(x => x.Email).IsUnique();
+        b.Entity<InboxReceipt>().HasIndex(x => new { x.InboxId, x.Uid }).IsUnique();
+        b.Entity<InboxProfile>().HasIndex(x => new { x.AutoPoll, x.NextPollAt });
+        b.Entity<SignupRequest>().HasIndex(x => new { x.FormId, x.Email }).IsUnique();
+        b.Entity<SignupRequest>().HasIndex(x => new { x.State, x.NextAttemptAt });
         b.Entity<RecipientJob>().HasIndex(x => new { x.CampaignId, x.ContactId }).IsUnique();
         b.Entity<RecipientJob>().HasIndex(x => new { x.State, x.StartedAt });
         b.Entity<Contact>().HasIndex(x => new { x.ListName, x.Suppressed });

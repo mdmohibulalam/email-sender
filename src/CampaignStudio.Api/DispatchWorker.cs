@@ -24,6 +24,8 @@ public sealed class DispatchWorker(IServiceScopeFactory scopes, StudioSettings s
         var clock = scope.ServiceProvider.GetRequiredService<TimeProvider>();
         long now = clock.GetUtcNow().ToUnixTimeSeconds(), millis = clock.GetUtcNow().ToUnixTimeMilliseconds();
         await Recover(db, now, stop);
+        try { await Inboxes.ProcessOne(db, scope.ServiceProvider, now, stop); } catch (FormatException) { }
+        await SignupForms.ProcessOne(db, settings, scope.ServiceProvider, now, stop);
         var campaign = await db.Campaigns.AsNoTracking().Where(c => (c.State == "Scheduled" || c.State == "Running") && c.ScheduledAt <= now &&
             (db.Jobs.Any(j => j.CampaignId == c.Id && (j.State == "Pending" || j.State == "Deferred") && (j.NextAttemptAt == null || j.NextAttemptAt <= now)) ||
             !db.Jobs.Any(j => j.CampaignId == c.Id && (j.State == "Pending" || j.State == "Deferred" || j.State == "Sending"))))
@@ -63,7 +65,7 @@ public sealed class DispatchWorker(IServiceScopeFactory scopes, StudioSettings s
             message.From.Add(new MailboxAddress(campaign.SenderName, campaign.SenderEmail.Length > 0 ? campaign.SenderEmail : "preview@example.com"));
             message.To.Add(MailboxAddress.Parse(job.Email));
             if (campaign.ReplyTo.Length > 0) message.ReplyTo.Add(MailboxAddress.Parse(campaign.ReplyTo));
-            message.Subject = EmailRenderer.Merge(campaign.Subject, job.FirstName, job.LastName, job.Email).Replace('\r', ' ').Replace('\n', ' ');
+            message.Subject = EmailRenderer.Merge(ScriptTags.Resolve(campaign.TagsJson, campaign.Subject, job.FirstName, job.LastName, job.Email), job.FirstName, job.LastName, job.Email).Replace('\r', ' ').Replace('\n', ' ');
             message.Headers.Add("List-Unsubscribe", "<" + unsubscribe + ">"); message.Headers.Add("List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
             string html = EmailRenderer.Html(campaign, job.FirstName, job.LastName, job.Email, unsubscribe);
             var body = new BodyBuilder { HtmlBody = html, TextBody = EmailDesign.Text(html) + "\nUnsubscribe: " + unsubscribe };

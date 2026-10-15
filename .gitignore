@@ -5,3 +5,5 @@ artifacts/
 *.user
 .env
 test-results/
+node_modules/
+playwright-report/

@@ -34,7 +34,7 @@ public static class EmailDesign
     }
     public static string RenderBlocks(Campaign c, string first, string last, string email)
     {
-        string E(string s) => WebUtility.HtmlEncode(EmailRenderer.Merge(s, first, last, email)).Replace("\r\n", "\n").Replace("\n", "<br>");
+        string E(string s) => WebUtility.HtmlEncode(EmailRenderer.Merge(ScriptTags.Resolve(c.TagsJson, s, first, last, email), first, last, email)).Replace("\r\n", "\n").Replace("\n", "<br>");
         return string.Join("", Blocks(c.BlocksJson).Select(b => b.Type switch
         {
             "heading" => $"<h2 style='line-height:1.3'>{E(b.Content)}</h2>",

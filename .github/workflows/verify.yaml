@@ -1,14 +1,40 @@
-name: Build previews
+name: Build and verify
 on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
 jobs:
   functional:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: studio_test_password
+          POSTGRES_DB: studio_tests
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - run: dotnet run --project tests/CampaignStudio.Tests
+        env:
+          STUDIO_TEST_POSTGRES: Host=localhost;Port=5432;Database=studio_tests;Username=postgres;Password=studio_test_password
+      - run: dotnet list src/CampaignStudio.Api package --vulnerable --include-transitive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: tests/browser
+        run: npm ci
+      - working-directory: tests/browser
+        run: npx playwright install --with-deps chromium
+      - working-directory: tests/browser
+        run: npm test
   windows:
     runs-on: windows-latest
     steps:
@@ -17,7 +43,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - shell: pwsh
-        run: ./scripts/Build-Windows.ps1
+        run: |
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          ./scripts/Build-Windows.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: CampaignStudio-native-windows-preview

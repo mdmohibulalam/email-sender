@@ -164,6 +164,10 @@ namespace CampaignStudio.Api.Migrations.Postgres
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("TagsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("UtmCampaign")
                         .IsRequired()
                         .HasColumnType("text");
@@ -272,6 +276,85 @@ namespace CampaignStudio.Api.Migrations.Postgres
                         .IsUnique();
 
                     b.ToTable("Exclusions");
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.InboxProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("AutoPoll")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("NextPollAt")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PasswordCipher")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SignupFormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long?>("VerifiedAt")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AutoPoll", "NextPollAt");
+
+                    b.ToTable("Inboxes");
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.InboxReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("At")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("InboxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Uid")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InboxId", "Uid")
+                        .IsUnique();
+
+                    b.ToTable("InboxReceipts");
                 });
 
             modelBuilder.Entity("CampaignStudio.Core.LibraryItem", b =>
@@ -487,6 +570,82 @@ namespace CampaignStudio.Api.Migrations.Postgres
                     b.HasKey("Id");
 
                     b.ToTable("Senders");
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.SignupForm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ListName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SenderId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Forms");
+                });
+
+            modelBuilder.Entity("CampaignStudio.Core.SignupRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("FormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ListName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("NextAttemptAt")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FormId", "Email")
+                        .IsUnique();
+
+                    b.HasIndex("State", "NextAttemptAt");
+
+                    b.ToTable("Signups");
                 });
 #pragma warning restore 612, 618
         }
