@@ -1,6 +1,6 @@
 # Windows release checks — 0.2
 ## Automated workflow
-Build and verify runs the functional suite on Windows, publishes the self-contained native WinUI shell and portable API, launches the portable API on an isolated ephemeral port, checks authenticated settings, launches the native shell in smoke-test mode, and verifies that the authenticated WebView renders the workspace. Only after these checks does it compile the unsigned Inno Setup installer.
+Build and verify runs the functional suite on Windows, publishes the self-contained native WinUI shell and portable API, launches the portable API on an isolated ephemeral port, checks authenticated settings, launches the native shell in smoke-test mode, and verifies that the authenticated WebView renders the workspace. Only after these checks does it compile the unsigned Inno Setup installer, install it into a temporary location, launch the installed native workspace, and uninstall it.
 
 A successful runner build is evidence for that Windows runner, not certification on every Windows PC. WebView2 Runtime is a prerequisite; an offline runtime is not bundled. The installer currently does not install that prerequisite automatically.
 
