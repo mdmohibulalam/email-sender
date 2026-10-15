@@ -6,48 +6,7 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  schema:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/complete-marketing-workspace'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      sha: ${{ steps.commit.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/complete-marketing-workspace
-          persist-credentials: true
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - name: Generate recovery migrations
-        shell: bash
-        run: |
-          set -euo pipefail
-          dotnet build src/CampaignStudio.Api --disable-build-servers -m:1
-          dotnet tool install dotnet-ef --version 10.0.13 --tool-path "$RUNNER_TEMP/studio-ef"
-          if ! "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations has-pending-model-changes --context SqliteStore --project src/CampaignStudio.Api --no-build; then
-            "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations add RecoveredFeatures --context SqliteStore --project src/CampaignStudio.Api --output-dir Migrations/Sqlite --no-build
-          fi
-          if ! "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations has-pending-model-changes --context PostgresStore --project src/CampaignStudio.Api --no-build; then
-            "$RUNNER_TEMP/studio-ef/dotnet-ef" migrations add RecoveredFeatures --context PostgresStore --project src/CampaignStudio.Api --output-dir Migrations/Postgres --no-build
-          fi
-      - id: commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add src/CampaignStudio.Api/Migrations/
-          if ! git diff --cached --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'Add generated schema upgrades for recovered marketing features'
-            git push origin HEAD:feature/complete-marketing-workspace
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   functional:
-    needs: schema
-    if: always() && (needs.schema.result == 'success' || needs.schema.result == 'skipped')
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -62,7 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.schema.outputs.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
@@ -80,21 +38,35 @@ jobs:
         run: npx playwright install --with-deps chromium
       - working-directory: tests/browser
         run: npm test
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: bash scripts/Test-Docker.sh
   windows:
-    needs: schema
-    if: always() && (needs.schema.result == 'success' || needs.schema.result == 'skipped')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.schema.outputs.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - shell: pwsh
         run: ./scripts/Build-Windows.ps1
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $compiler)) { choco install innosetup --yes --no-progress }
+          & $compiler installer/CampaignStudio.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
       - uses: actions/upload-artifact@v4
         with:
           name: CampaignStudio-native-windows-preview
-          path: artifacts/windows-native/
+          path: |
+            artifacts/windows-native/
+            artifacts/windows-portable/
+            artifacts/installer/

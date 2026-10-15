@@ -25,6 +25,12 @@ public sealed partial class MainWindow : Window
         Workspace.Loaded += async (_, _) => await InitializeWorkspace();
         Closed += async (_, _) => { if (server is not null) { await server.StopAsync(); await server.DisposeAsync(); } };
     }
+    private static void SmokeExit(int code, string detail)
+    {
+        string? result=Environment.GetEnvironmentVariable("CAMPAIGN_STUDIO_SMOKE_RESULT");
+        if(!string.IsNullOrWhiteSpace(result)) File.WriteAllText(result,detail);
+        Environment.Exit(code);
+    }
     private async Task InitializeWorkspace()
     {
         if (initialized) return; initialized = true;
@@ -66,7 +72,7 @@ public sealed partial class MainWindow : Window
                 await server.StartAsync();
                 origin = server.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single().TrimEnd('/');
             }
-            var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(folder, "WebView"), null);
+            var environment = await CoreWebView2Environment.CreateWithOptionsAsync(null, Path.Combine(folder, "WebView"), new CoreWebView2EnvironmentOptions());
             await Workspace.EnsureCoreWebView2Async(environment);
             Workspace.CoreWebView2.Settings.AreDevToolsEnabled = false;
             Workspace.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -79,17 +85,17 @@ public sealed partial class MainWindow : Window
             await Workspace.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("if(window.top===window && location.origin===" + JsonSerializer.Serialize(origin) + "){window.__studioDesktopKey=" + JsonSerializer.Serialize(key) + ";}");
             Workspace.CoreWebView2.NavigationCompleted += async (_, args) =>
             {
-                if (!args.IsSuccess) { Status.Text = "Could not open the workspace. Check the cloud connection."; if (smoke) Environment.Exit(1); return; }
+                if (!args.IsSuccess) { Status.Text = "Could not open the workspace. Check the cloud connection."; if (smoke) SmokeExit(1, "Navigation failed: " + args.WebErrorStatus); return; }
                 Status.Visibility = Visibility.Collapsed;
                 if (smoke)
                 {
                     for (int attempt=0;attempt<80;attempt++)
                     {
                         string ready=await Workspace.ExecuteScriptAsync("document.querySelectorAll('#nav [data-nav]').length >= 10 && !!document.querySelector('h1')");
-                        if(ready=="true"){Environment.Exit(0);return;}
+                        if(ready=="true"){SmokeExit(0,"Workspace rendered");return;}
                         await Task.Delay(250);
                     }
-                    Environment.Exit(2);
+                    SmokeExit(2,"Workspace content did not become ready");
                 }
             };
             Workspace.CoreWebView2.DownloadStarting += (_, args) =>
@@ -102,6 +108,6 @@ public sealed partial class MainWindow : Window
             };
             Workspace.Source = new Uri(origin);
         }
-        catch (Exception ex) { Status.Text = "Unable to open Campaign Studio: " + ex.Message; if (smoke) Environment.Exit(1); }
+        catch (Exception ex) { Status.Text = "Unable to open Campaign Studio: " + ex.Message; if (smoke) SmokeExit(1,ex.ToString()); }
     }
 }
