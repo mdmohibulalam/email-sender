@@ -68,4 +68,3 @@ templateData.push(...[
 ]);
 if(location.hash.startsWith('#connect=')){state.key=decodeURIComponent(location.hash.slice(9));history.replaceState(null,'','#overview');sessionStorage.setItem('studio-key',state.key);}
 if(window.__studioDesktopKey){state.key=window.__studioDesktopKey;delete window.__studioDesktopKey;}if(state.key)start();else login();
-
