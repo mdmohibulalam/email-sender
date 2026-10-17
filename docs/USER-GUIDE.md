@@ -1,4 +1,4 @@
-# Using Campaign Studio 0.2.1
+# Using Campaign Studio 0.2.2
 
 ## Open a workspace
 Use the native Windows application or the portable Start-CampaignStudio.cmd launcher. The native window runs a private local API and injects its temporary workspace key into the trusted view. The portable launcher opens your browser and supplies the key through the launcher flow. For a hosted workspace, open its HTTPS URL and enter the workspace key.
@@ -62,3 +62,12 @@ Settings → License & account shows the installed preview version, license requ
 Help → User guide supports keyword search. Help → Help & shortcuts lists implemented commands and can copy credential-free application details for a GitHub issue. Ctrl+, opens Appearance; Ctrl+/ opens shortcuts; F1 opens the guide; Ctrl+Alt+1/2/3 opens Overview/Audience/Campaigns; Ctrl+S saves an open campaign editor. Escape closes menus/dialogs; arrow keys and Home/End navigate open dropdowns.
 
 Help → Check for updates checks only the official repository's latest published stable release. A missing release is reported as unpublished, and a network failure is reported as a failed check. Preview installers remain available from successful Actions builds. Downloads and installation are manual; there is no silent updater. Native release/download/support links open your default browser only for the permitted official repository paths.
+
+## Form and scheduling fixes (0.2.2)
+Connection inputs show example placeholders without prefilled credentials. SMTP port, pacing, retry and parallel limits show supported ranges. Direct delivery hides SMTP account fields. Saved password inputs remain empty; leaving them blank retains the encrypted value.
+
+Audience sorting keeps Sort by / Then by on a single line; whole control groups wrap on narrow screens. Form dropdowns use consistent arrows, spacing, colors and heights; multi-select lists retain their listbox behavior.
+
+Review & schedule now explains an empty subject or empty eligible audience and links directly back to the relevant editor field. Choose Start now or Choose a date & time. Later schedules require a valid future date within one year. Live sending requires a verified connection and explicit confirmation.
+
+Scheduling errors appear inside the dialog. While submitting, controls prevent duplicate requests. A timed-out response does not prove the schedule failed: check Campaigns for its latest status before retrying. The backend also prevents a campaign from being scheduled twice.

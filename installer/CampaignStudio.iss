@@ -1,4 +1,4 @@
-#define AppVersion "0.2.1"
+#define AppVersion "0.2.2"
 [Setup]
 AppId={{763F7AEC-A320-48A3-A0B0-E41D5C39BC73}
 AppName=Campaign Studio

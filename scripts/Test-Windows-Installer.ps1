@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$installer = Join-Path $root 'artifacts/installer/CampaignStudio-Setup-0.2.1-win-x64.exe'
+$installer = Join-Path $root 'artifacts/installer/CampaignStudio-Setup-0.2.2-win-x64.exe'
 $target = Join-Path $env:TEMP ('Studio-Install-' + [Guid]::NewGuid().ToString('N'))
 try {
     $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $target + '"')) -PassThru -Wait

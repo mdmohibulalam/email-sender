@@ -40,10 +40,10 @@ try {
         try {
             if (Test-Path $readyFile) {
                 $launch = Get-Content -Raw $readyFile | ConvertFrom-Json
-                if ($launch.pid -eq $process.Id -and $launch.version -eq '0.2.1') {
+                if ($launch.pid -eq $process.Id -and $launch.version -eq '0.2.2') {
                     $url = $launch.url
                     $health = Invoke-RestMethod "$url/health" -TimeoutSec 1
-                    if ($health.version -eq '0.2.1') { $ready = $true; break }
+                    if ($health.version -eq '0.2.2') { $ready = $true; break }
                 }
             }
         } catch {}
