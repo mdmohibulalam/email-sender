@@ -1,4 +1,4 @@
-# Using Campaign Studio 0.2
+# Using Campaign Studio 0.2.1
 
 ## Open a workspace
 Use the native Windows application or the portable Start-CampaignStudio.cmd launcher. The native window runs a private local API and injects its temporary workspace key into the trusted view. The portable launcher opens your browser and supplies the key through the launcher flow. For a hosted workspace, open its HTTPS URL and enter the workspace key.
@@ -9,7 +9,7 @@ Local data is separate: native uses %LOCALAPPDATA%\CampaignStudio; portable uses
 Open Audience to import a CSV, map columns and record a consent source. Review the added, duplicate and invalid counts. Use sort selectors for up to three fields. Suppression is global for the normalized email and survives list moves. Workspace → Lists & segments creates All/Any rules, previews matches, manages exclusions and moves/merges audiences. A canonical contact belongs to one list.
 
 ## Connections
-Workspace → Connections manages encrypted SMTP and POP3 profiles. An SMTP connection test verifies TLS/authentication without sending. Set sender, reply-to, envelope return address, retry cap, delay and parallel connection limit. A direct profile requires explicit server configuration and suitable network access; ordinary SMTP is the default.
+Connections manages encrypted SMTP and POP3 profiles. An SMTP connection test verifies TLS/authentication without sending. Set sender, reply-to, envelope return address, retry cap, delay and parallel connection limit. A direct profile requires explicit server configuration and suitable network access; ordinary SMTP is the default.
 
 Live scheduling additionally requires the server live-send switch and a public HTTPS base URL. Do not use arbitrary public addresses for testing. First use capture mode, then an authorized test audience through your provider.
 
@@ -51,3 +51,14 @@ Legacy SQLite upgrades make a verified snapshot and record an interruption marke
 
 ## Current support boundary
 This is a single-workspace preview with one administrative key. It has no customer accounts, roles, automatic desktop/cloud sync or signed automatic updates. See FEATURE-MATRIX.md and VALIDATION-V02.md for precise gaps and verification.
+
+## Settings and Help (0.2.1)
+Connections now follows Workspace in the top navigation. Workspace contains lists/segments, library, integrations/forms and tools. Preview version is shown in the footer.
+
+Settings → Appearance selects Forest, Indigo, Ocean or Rose and reduced motion. Save appearance applies it to the app and persists it in appearance.json with this workspace. Include that file in backups. These are workspace-wide choices for this single-admin preview. They do not change email colors. Settings → Switch theme selects Light, Dark or Use system setting; Apply theme saves the choice. System mode follows later operating-system color changes.
+
+Settings → License & account shows the installed preview version, license requirement, storage and administrative access model. No license is required for this preview. Customer accounts, paid activation and billing are not offered. Disconnect this tab asks for confirmation; schedules continue. Reopen the native local app to reconnect, or supply the administrative key again in a browser.
+
+Help → User guide supports keyword search. Help → Help & shortcuts lists implemented commands and can copy credential-free application details for a GitHub issue. Ctrl+, opens Appearance; Ctrl+/ opens shortcuts; F1 opens the guide; Ctrl+Alt+1/2/3 opens Overview/Audience/Campaigns; Ctrl+S saves an open campaign editor. Escape closes menus/dialogs; arrow keys and Home/End navigate open dropdowns.
+
+Help → Check for updates checks only the official repository's latest published stable release. A missing release is reported as unpublished, and a network failure is reported as a failed check. Preview installers remain available from successful Actions builds. Downloads and installation are manual; there is no silent updater. Native release/download/support links open your default browser only for the permitted official repository paths.

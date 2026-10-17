@@ -130,6 +130,7 @@ try
     Check((await Json(await client.GetAsync($"/api/campaigns/{copy}/report"))).GetProperty("jobs")[0].GetProperty("state").GetString() == "Unknown", "Interrupted-job review state survives a server restart");
     await ExtendedChecks.Run(Check);
     await AdvancedChecks.Run(Check);
+    await WorkspaceChecks.Run(Check);
     await using (var tls = new TlsSandbox()) await tls.Run(Check);
     if (Environment.GetEnvironmentVariable("STUDIO_TEST_POSTGRES") is string postgres) await PostgresChecks.Run(postgres, Check);
     Console.WriteLine($"\n{passed} checks passed. No real emails sent.");

@@ -38,6 +38,14 @@ jobs:
         run: npx playwright install --with-deps chromium
       - working-directory: tests/browser
         run: npm test
+        env:
+          STUDIO_UI_SCREENSHOTS: ${{ runner.temp }}/studio-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CampaignStudio-ui-checks
+          path: ${{ runner.temp }}/studio-screenshots/
+          if-no-files-found: warn
   container:
     runs-on: ubuntu-latest
     steps:

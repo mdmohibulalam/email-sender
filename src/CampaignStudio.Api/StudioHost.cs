@@ -27,6 +27,8 @@ public static class StudioHost
         builder.Services.AddSingleton<ImageAssets>();
         builder.Services.AddSingleton<EngagementTracking>();
         builder.Services.AddSingleton<ExternalDesigner>();
+        builder.Services.AddSingleton<WorkspacePreferences>();
+        builder.Services.AddHttpClient<UpdateChecker>(c => { c.Timeout = TimeSpan.FromSeconds(10); c.DefaultRequestHeaders.UserAgent.ParseAdd("CampaignStudio/" + StudioVersion.Current); c.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json"); }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         builder.Services.AddSingleton<ISmtpTransport, SmtpTransport>();
         builder.Services.AddSingleton<IInboxReader, Pop3Reader>();
         builder.Services.AddHttpClient<JotformClient>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 2_000_000; }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -87,12 +89,21 @@ public static class StudioHost
             catch (Exception) { ctx.Response.StatusCode = 500; await ctx.Response.WriteAsJsonAsync(new { error = "Operation failed. Review the workspace settings and try again.", requestId = ctx.TraceIdentifier }); }
         });
         app.UseDefaultFiles(); app.UseStaticFiles();
-        app.MapGet("/health", () => Results.Ok(new { status = "ok", version = "0.2.0" }));
+        app.MapGet("/health", () => Results.Ok(new { status = "ok", version = StudioVersion.Current }));
         var api = app.MapGroup("/api");
-        api.MapGet("/settings", async (Store db) => new { version = "0.2.0", liveReady = settings.EnableLiveSending && settings.PublicLinksReady && await db.Senders.AnyAsync(x => x.VerifiedAt != null),
+        api.MapGet("/settings", async (Store db) => new { version = StudioVersion.Current, liveReady = settings.EnableLiveSending && settings.PublicLinksReady && await db.Senders.AnyAsync(x => x.VerifiedAt != null),
+            releaseChannel = StudioVersion.Channel, licenseRequired = false, accountMode = "Workspace access key",
             liveSendingEnabled = settings.EnableLiveSending, publicLinksReady = settings.PublicLinksReady,
             fromEmail = settings.FromEmail, fromName = settings.FromName, storage = settings.Postgres is null ? "Local SQLite" : "PostgreSQL",
             execution = "This server owns its campaign queue", sendingMode = "Capture emails until live SMTP is configured" });
+        api.MapGet("/preferences", (WorkspacePreferences preferences, CancellationToken ct) => preferences.Read(ct));
+        api.MapPut("/preferences", (WorkspaceAppearance appearance, WorkspacePreferences preferences, CancellationToken ct) => preferences.Save(appearance, ct));
+        api.MapGet("/updates", async (UpdateChecker checker, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await checker.Check(ct)); }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+            { return Results.Json(new { error = "Could not check for updates. Check your internet connection and try again." }, statusCode: 503); }
+        });
         Connections.Map(api);
         ExternalDesigner.Map(api);
         WorkspaceWidgets.Map(api);

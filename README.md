@@ -1,8 +1,10 @@
-# Campaign Studio 0.2 — working preview
+# Campaign Studio 0.2.1 — working preview
 
 Windows email-campaign software with a .NET API, a native WinUI/WebView2 shell, and an optional PostgreSQL-backed hosted workspace. This is a single-workspace preview, not a finished commercial service.
 
 The main campaign workflows are implemented: contact import/segments/suppressions, block and HTML design, image editing, EML import, personalized attachments, calendar events, reusable content, encrypted SMTP/POP3 profiles, double-opt-in forms, JotForm import, scheduling/retries, parallel dispatch, reporting, optional engagement signals and maintenance tools.
+
+Version 0.2.1 moves Connections beside Workspace and adds Settings/Help dropdowns, saved appearance palettes, Light/Dark/System themes, searchable help, keyboard shortcuts, workspace/license status and manual release checks. See [0.2.1 validation](docs/VALIDATION-V021.md).
 
 **Start here:** [User guide](docs/USER-GUIDE.md) · [42-feature comparison](docs/FEATURE-MATRIX.md) · [Validation evidence](docs/VALIDATION-V02.md) · [Windows release checks](docs/WINDOWS-CHECKLIST.md).
 

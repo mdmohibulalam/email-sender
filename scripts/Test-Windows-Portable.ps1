@@ -16,10 +16,10 @@ try {
         if ($process.HasExited) { throw (Get-Content -Raw (Join-Path $testDir 'stderr.txt')) }
         if (Test-Path $readyFile) {
             $launch = Get-Content -Raw $readyFile | ConvertFrom-Json
-            if ($launch.pid -eq $process.Id -and $launch.version -eq '0.2.0') {
+            if ($launch.pid -eq $process.Id -and $launch.version -eq '0.2.1') {
                 $health = Invoke-RestMethod ($launch.url + '/health') -TimeoutSec 3
                 $settings = Invoke-RestMethod ($launch.url + '/api/settings') -Headers @{Authorization=('Bearer ' + $env:Studio__ApiKey)} -TimeoutSec 3
-                if ($health.version -eq '0.2.0' -and -not $settings.liveReady) { $ready=$true;break }
+                if ($health.version -eq '0.2.1' -and -not $settings.liveReady) { $ready=$true;break }
             }
         }
         Start-Sleep -Milliseconds 250

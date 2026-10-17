@@ -17,7 +17,7 @@ try
     if (!string.IsNullOrWhiteSpace(readyFile))
     {
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
-        await File.WriteAllTextAsync(readyFile + ".tmp", JsonSerializer.Serialize(new { url=address, pid=Environment.ProcessId, version="0.2.0" }));
+        await File.WriteAllTextAsync(readyFile + ".tmp", JsonSerializer.Serialize(new { url=address, pid=Environment.ProcessId, version=StudioVersion.Current }));
         File.Move(readyFile + ".tmp", readyFile, true); wroteReady = true;
     }
     await app.WaitForShutdownAsync();

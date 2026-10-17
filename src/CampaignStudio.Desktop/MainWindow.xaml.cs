@@ -20,7 +20,7 @@ public sealed partial class MainWindow : Window
     private readonly bool smoke = Environment.GetCommandLineArgs().Contains("--smoke-test");
     public MainWindow()
     {
-        InitializeComponent(); Title = "Campaign Studio — Preview 0.2";
+        InitializeComponent(); Title = "Campaign Studio";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1360, 920));
         Workspace.Loaded += async (_, _) => await InitializeWorkspace();
         Closed += async (_, _) => { if (server is not null) { await server.StopAsync(); await server.DisposeAsync(); } };
@@ -77,7 +77,16 @@ public sealed partial class MainWindow : Window
             await Workspace.EnsureCoreWebView2Async(environment);
             Workspace.CoreWebView2.Settings.AreDevToolsEnabled = false;
             Workspace.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            Workspace.CoreWebView2.NewWindowRequested += (_, args) => args.Handled = true;
+            Workspace.CoreWebView2.NewWindowRequested += (_, args) =>
+            {
+                args.Handled = true;
+                if (Uri.TryCreate(args.Uri, UriKind.Absolute, out var target) && target.Scheme == "https" && target.Host == "github.com" && target.IsDefaultPort && target.UserInfo.Length == 0 &&
+                    new[] { "/mdmohibulalam/email-sender/releases", "/mdmohibulalam/email-sender/issues", "/mdmohibulalam/email-sender/actions" }.Any(path => target.AbsolutePath == path || target.AbsolutePath.StartsWith(path + "/", StringComparison.Ordinal)))
+                {
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target.AbsoluteUri) { UseShellExecute = true }); }
+                    catch (Exception) { Status.Text = "Open github.com/mdmohibulalam/email-sender in your browser for downloads or support."; Status.Visibility = Visibility.Visible; }
+                }
+            };
             Workspace.CoreWebView2.NavigationStarting += (_, args) =>
             {
                 // Preview frames have no scripts or native bridges. Only the trusted workspace can navigate the top-level view.
